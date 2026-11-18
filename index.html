@@ -769,9 +769,9 @@ if (!window.L) {
   }
   function mailFields(c){
     var tipo = CM_TIPOS[c.k] || 'Comentario';
-    return {_subject: 'Ya viene el camión: ' + tipo, _template: 'table', _captcha: 'false', _url: window.location.href.split('#')[0], Tipo: tipo, Detalle: c.x || '(sin detalle)', Fecha: new Date(c.t).toLocaleString('es-MX')};
+    return {_subject: 'Reporte del camión de San Pablo Zitlaltepec: ' + tipo, _template: 'table', _captcha: 'false', _url: window.location.href.split('#')[0], Proyecto: 'Ya viene el camión - San Pablo Zitlaltepec', 'Tipo de reporte': tipo, 'Descripción': c.x || '(Sin detalle adicional)', 'Fecha y hora': new Date(c.t).toLocaleString('es-MX')};
   }
-  /* Método 1: envío en segundo plano */
+  function mailErrorMessage(ex){var msg=ex&&ex.message?ex.message:'';if(/This form needs Activation/i.test(msg))return'El formulario todavía necesita activarse. Revisa el correo de destino y usa el enlace “Activate Form”. El reporte quedó guardado; después puedes reintentar.';if(/Failed to fetch|NetworkError|Load failed/i.test(msg))return'No se pudo conectar con el servicio de correo. Revisa tu conexión e inténtalo de nuevo. El reporte quedó guardado.';var http=msg.match(/^HTTP\s+(\d+)$/i);if(http)return'El servicio de correo respondió con el código HTTP '+http[1]+'. El reporte quedó guardado; puedes reintentar.';if(/respuesta no válida/i.test(msg))return'El servicio de correo respondió en un formato inesperado. El reporte quedó guardado; puedes reintentar.';return'El servicio de correo no confirmó el envío. El reporte quedó guardado en este navegador; puedes reintentar.';} /* Método 1: envío en segundo plano */
   function sendAjax(c){
     return fetch(MAIL_ENDPOINT, {method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json'}, body: JSON.stringify(mailFields(c))})
       .then(function(r){
@@ -789,14 +789,14 @@ if (!window.L) {
     btn.disabled = true; $('#cmRetry').disabled = true;
     mailStatus('Enviando al servicio de correo…');
     sendAjax(c)
-      .then(function(msg){
+      .then(function(){
         if (pendingComment === c) storePendingComment(null);
-        mailStatus('FormSubmit aceptó el envío. Si es la primera vez, confirma el formulario desde el correo de destino; después revisa entrada y spam. Respuesta: ' + msg);
-        toast('FormSubmit aceptó el comentario');
+        mailStatus('El servicio de correo aceptó el reporte. Revisa Recibidos, Spam y Promociones; el proveedor no confirma la entrega final.');
+        toast('Reporte aceptado para envío');
       })
       .catch(function(ex){
         storePendingComment(c);
-        mailStatus('No se confirmó el envío al correo (' + ex.message + '). El comentario quedó guardado en este navegador; puedes reintentar.', true, true);
+        mailStatus(mailErrorMessage(ex), true, true);
       })
       .then(function(){
         btn.disabled = false; $('#cmRetry').disabled = false;
