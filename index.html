@@ -5,7 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#eef1ee" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0d1613" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Consulta el mapa de demostración del camión en San Pablo Zitlaltepec y comparte avisos vecinales. El recorrido no usa GPS en tiempo real.">
+<link rel="canonical" href="https://mt8541049-commits.github.io/ya-viene-el-camion-san-pablo-zitlaltepec/">
+<link rel="manifest" href="https://mt8541049-commits.github.io/ya-viene-el-camion-san-pablo-zitlaltepec/manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="https://mt8541049-commits.github.io/ya-viene-el-camion-san-pablo-zitlaltepec/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="https://mt8541049-commits.github.io/ya-viene-el-camion-san-pablo-zitlaltepec/apple-touch-icon.png">
 <title>Ya Viene el Camión</title>
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://mt8541049-commits.github.io/ya-viene-el-camion-san-pablo-zitlaltepec/">
+<meta property="og:title" content="Ya Viene el Camión | San Pablo Zitlaltepec">
+<meta property="og:description" content="Mapa de demostración y avisos vecinales para San Pablo Zitlaltepec, Tlaxcala. El camión mostrado es simulado, no GPS en tiempo real.">
+<meta property="og:image" content="https://mt8541049-commits.github.io/ya-viene-el-camion-san-pablo-zitlaltepec/social-preview.png">
+<meta property="og:image:secure_url" content="https://mt8541049-commits.github.io/ya-viene-el-camion-san-pablo-zitlaltepec/social-preview.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Ya Viene el Camión, mapa vecinal de demostración para San Pablo Zitlaltepec, Tlaxcala.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Ya Viene el Camión | San Pablo Zitlaltepec">
+<meta name="twitter:description" content="Mapa de demostración y avisos vecinales para San Pablo Zitlaltepec, Tlaxcala.">
+<meta name="twitter:image" content="https://mt8541049-commits.github.io/ya-viene-el-camion-san-pablo-zitlaltepec/social-preview.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,800..900&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
 <style>
@@ -771,7 +790,16 @@ if (!window.L) {
     var tipo = CM_TIPOS[c.k] || 'Comentario';
     return {_subject: 'Reporte del camión de San Pablo Zitlaltepec: ' + tipo, _template: 'table', _captcha: 'false', _url: window.location.href.split('#')[0], Proyecto: 'Ya viene el camión - San Pablo Zitlaltepec', 'Tipo de reporte': tipo, 'Descripción': c.x || '(Sin detalle adicional)', 'Fecha y hora': new Date(c.t).toLocaleString('es-MX')};
   }
-  function mailErrorMessage(ex){var msg=ex&&ex.message?ex.message:'';if(/This form needs Activation/i.test(msg))return'El formulario todavía necesita activarse. Revisa el correo de destino y usa el enlace “Activate Form”. El reporte quedó guardado; después puedes reintentar.';if(/Failed to fetch|NetworkError|Load failed/i.test(msg))return'No se pudo conectar con el servicio de correo. Revisa tu conexión e inténtalo de nuevo. El reporte quedó guardado.';var http=msg.match(/^HTTP\s+(\d+)$/i);if(http)return'El servicio de correo respondió con el código HTTP '+http[1]+'. El reporte quedó guardado; puedes reintentar.';if(/respuesta no válida/i.test(msg))return'El servicio de correo respondió en un formato inesperado. El reporte quedó guardado; puedes reintentar.';return'El servicio de correo no confirmó el envío. El reporte quedó guardado en este navegador; puedes reintentar.';} /* Método 1: envío en segundo plano */
+  function mailErrorMessage(ex){
+    var msg = ex && ex.message ? ex.message : '';
+    if (/This form needs Activation/i.test(msg)) return 'El formulario todavía necesita activarse. Revisa el correo de destino y usa el enlace “Activate Form”. El reporte quedó guardado; después puedes reintentar.';
+    if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) return 'No se pudo conectar con el servicio de correo. Revisa tu conexión e inténtalo de nuevo. El reporte quedó guardado.';
+    var http = msg.match(/^HTTP\s+(\d+)$/i);
+    if (http) return 'El servicio de correo respondió con el código HTTP ' + http[1] + '. El reporte quedó guardado; puedes reintentar.';
+    if (/respuesta no válida/i.test(msg)) return 'El servicio de correo respondió en un formato inesperado. El reporte quedó guardado; puedes reintentar.';
+    return 'El servicio de correo no confirmó el envío. El reporte quedó guardado en este navegador; puedes reintentar.';
+  }
+  /* Método 1: envío en segundo plano */
   function sendAjax(c){
     return fetch(MAIL_ENDPOINT, {method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json'}, body: JSON.stringify(mailFields(c))})
       .then(function(r){

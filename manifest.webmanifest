@@ -1,0 +1,31 @@
+{
+  "id": "/ya-viene-el-camion-san-pablo-zitlaltepec/",
+  "name": "Ya Viene el Camión - San Pablo Zitlaltepec",
+  "short_name": "Ya Viene",
+  "description": "Mapa de demostración del camión y avisos vecinales de San Pablo Zitlaltepec, Tlaxcala.",
+  "start_url": "/ya-viene-el-camion-san-pablo-zitlaltepec/",
+  "scope": "/ya-viene-el-camion-san-pablo-zitlaltepec/",
+  "display": "standalone",
+  "background_color": "#eef1ee",
+  "theme_color": "#d24c08",
+  "icons": [
+    {
+      "src": "/ya-viene-el-camion-san-pablo-zitlaltepec/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/ya-viene-el-camion-san-pablo-zitlaltepec/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/ya-viene-el-camion-san-pablo-zitlaltepec/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
