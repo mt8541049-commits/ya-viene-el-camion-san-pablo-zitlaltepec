@@ -1,0 +1,863 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#eef1ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1613" media="(prefers-color-scheme: dark)">
+<title>Ya Viene el Camión</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,800..900&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Diseño: mapa grande a la izquierda (fijo al hacer scroll); a la derecha la distancia del camión y las pestañas. En celular todo se apila. */
+:root{
+  color-scheme:light;
+  --bg:#eef1ee; --surface:#fbfcfb; --ink:#13221d; --muted:#566860; --line:#d2dbd5;
+  --accent:#d24c08; --on-accent:#ffffff; --route:#0d6b5c; --street:#e1e8e3;
+  --good:#1b7a43; --bad:#b92d1b; --warn:#8a5200;
+  --tint-good:#dcefe3; --tint-bad:#f9dfda; --tint-warn:#f8e8c8; --tint-route:#d6ece7;
+  --f-display:'Archivo','Arial Narrow',Arial,sans-serif;
+  --f-body:'Atkinson Hyperlegible',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --f-mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0d1613; --surface:#15211d; --ink:#e7efea; --muted:#93a69d; --line:#2a3a34;
+    --accent:#ff8340; --on-accent:#1d0d03; --route:#3fc7ac; --street:#1c2924;
+    --good:#5fd08a; --bad:#ff8a78; --warn:#f2b45a;
+    --tint-good:#173525; --tint-bad:#3a1d18; --tint-warn:#3a2c10; --tint-route:#113029;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0d1613; --surface:#15211d; --ink:#e7efea; --muted:#93a69d; --line:#2a3a34;
+  --accent:#ff8340; --on-accent:#1d0d03; --route:#3fc7ac; --street:#1c2924;
+  --good:#5fd08a; --bad:#ff8a78; --warn:#f2b45a;
+  --tint-good:#173525; --tint-bad:#3a1d18; --tint-warn:#3a2c10; --tint-route:#113029;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font:400 16px/1.5 var(--f-body);
+  padding-block:12px 56px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+}
+p{margin:0}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:focus-visible{outline:3px solid var(--route);outline-offset:2px}
+
+.shell{max-width:1120px;margin-inline:auto;display:grid;gap:16px}
+.top{display:flex;align-items:center;gap:12px}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.mark{flex:none;width:46px;height:46px;border-radius:12px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center}
+h1{
+  margin:0; font-family:var(--f-display); font-weight:900; font-stretch:75%;
+  font-size:clamp(28px,7vw,38px); line-height:1; text-transform:uppercase; letter-spacing:.01em; text-wrap:balance;
+}
+.sub{color:var(--muted);font-size:14px}
+.proto{font-size:13px;line-height:1.4;color:var(--muted);border:1px dashed var(--line);border-radius:8px;padding:8px 12px}
+
+.layout{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+.map-col{display:grid;gap:12px;min-width:0}
+.panel-col{display:grid;gap:14px;min-width:0;align-content:start}
+@media (min-width:900px){
+  .layout{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:24px;align-items:start}
+  .map-col{position:sticky;top:16px}
+}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.map-card{overflow:hidden}
+.map-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;flex-wrap:wrap}
+.map-head strong{font-family:var(--f-display);font-stretch:75%;font-weight:800;font-size:18px;text-transform:uppercase;letter-spacing:.02em}
+.live{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);animation:blink 1.4s ease-in-out infinite}
+@keyframes blink{50%{opacity:.25}}
+
+#map{width:100%;height:clamp(320px,62vh,640px);background:var(--street);font-family:var(--f-body)}
+.leaflet-control-attribution{font-size:11px}
+.r-done{stroke:var(--accent);opacity:.7}
+.st-line{stroke:var(--route);stroke-width:3px;opacity:.4}
+.no-tiles .st-line{stroke:var(--muted);stroke-width:7px;opacity:.85}
+.st-name{display:none}
+.no-tiles.lbl-on .st-name{display:block}
+.st-name span{position:absolute;transform:translate(-50%,-50%);white-space:nowrap;font:700 11px var(--f-body);color:var(--ink);background:var(--surface);padding:1px 7px;border-radius:999px;border:1px solid var(--line);pointer-events:none}
+.tk-wrap,.hm-wrap{background:none;border:0}
+.tk{position:relative;width:40px;height:32px}
+.tk-pulse{position:absolute;left:50%;top:47%;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;background:var(--accent);opacity:.5;animation:pulse 1.8s ease-out infinite}
+@keyframes pulse{0%{transform:scale(.6);opacity:.6}100%{transform:scale(1.5);opacity:0}}
+.tk-inner{position:absolute;inset:0}
+.tk-inner svg{display:block;width:40px;height:32px;overflow:visible}
+.t-body{fill:var(--accent);stroke:var(--surface);stroke-width:1.5}
+.t-cab{fill:var(--ink)}
+.t-wheel{fill:var(--ink);stroke:var(--surface);stroke-width:1.5}
+.hm{position:relative;width:26px;height:26px}
+.hm-dot{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--ink);color:var(--surface);border:2px solid var(--surface)}
+.hm-label{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);white-space:nowrap;font:700 12px var(--f-body);background:var(--surface);color:var(--ink);padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
+
+.demo{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chip{
+  font:700 14px/1 var(--f-body);min-height:40px;padding:0 14px;border-radius:999px;cursor:pointer;
+  border:1.5px solid var(--line);background:var(--surface);color:var(--ink);
+}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+.eta{padding:18px;display:grid;gap:10px;border-width:1.5px}
+.eta[data-st="near"]{border-color:var(--good)}
+.eta[data-st="close"]{border-color:var(--accent)}
+.eta-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.eta-sch{font:500 13px var(--f-mono);color:var(--muted)}
+.eta-lead{font-size:17px;font-weight:700;text-wrap:balance}
+.eta-num{
+  font-family:var(--f-display);font-weight:900;font-stretch:62%;
+  font-size:clamp(76px,22vw,120px);line-height:.88;font-variant-numeric:tabular-nums;letter-spacing:-.01em;
+}
+.eta-unit{font-family:var(--f-display);font-weight:800;font-stretch:75%;font-size:clamp(24px,6vw,32px);text-transform:uppercase;margin-left:8px;letter-spacing:.02em}
+.eta-foot{color:var(--muted);font-size:15px}
+.eta-foot strong{color:var(--ink)}
+.eta .btn{justify-self:start;margin-top:4px}
+
+.pill{display:inline-flex;align-items:center;gap:6px;font:700 13px/1 var(--f-body);padding:7px 11px;border-radius:999px}
+.pill-live{background:var(--tint-route);color:var(--route)}
+.pill-close{background:var(--tint-warn);color:var(--warn)}
+.pill-done{background:var(--tint-good);color:var(--good)}
+.pill-warn{background:var(--tint-warn);color:var(--warn)}
+.pill-plain{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+
+.btn{font:700 16px/1 var(--f-body);min-height:46px;padding:0 20px;border-radius:10px;cursor:pointer;border:2px solid transparent}
+.btn-primary{background:var(--accent);color:var(--on-accent)}
+.btn-ghost{background:transparent;border-color:var(--line);color:var(--ink)}
+.btn-small{min-height:38px;padding:0 14px;font-size:14px}
+
+.banner{background:var(--tint-warn);color:var(--ink);border:1px solid var(--warn);border-radius:10px;padding:10px 12px;font-size:15px}
+
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{
+  flex:1 0 auto;font:700 15px/1.2 var(--f-body);padding:12px 12px;cursor:pointer;white-space:nowrap;
+  background:none;border:0;border-bottom:3px solid transparent;color:var(--muted);margin-bottom:-1px;
+}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.panel{display:grid;gap:14px}
+
+select,input[type="text"],textarea{
+  font:400 16px/1.4 var(--f-body);color:var(--ink);background:var(--surface);
+  border:1.5px solid var(--line);border-radius:8px;min-height:44px;padding:9px 12px;width:100%;
+}
+textarea{min-height:92px;resize:vertical}
+.alert-set{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px}
+.alert-set label{display:inline-flex;align-items:center;gap:8px;font-weight:700;cursor:pointer}
+.alert-set input[type="checkbox"]{width:20px;height:20px;accent-color:var(--route)}
+.alert-set select{width:auto}
+
+.form{padding:16px;display:grid;gap:14px}
+.field{display:grid;gap:6px}
+.field>label,.field>.lbl{font-weight:700;font-size:15px}
+.hint{font-size:13px;color:var(--muted)}
+.status{font-size:15px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>input{flex:1 1 160px;width:auto}
+
+.opts{display:flex;flex-wrap:wrap;gap:8px;border:0;padding:0;margin:0;min-width:0}
+.opt{position:relative}
+.opt input{position:absolute;opacity:0;inset:0;width:100%;height:100%;margin:0;cursor:pointer}
+.opt span{display:inline-block;padding:10px 14px;min-height:44px;line-height:22px;border:1.5px solid var(--line);border-radius:999px;background:var(--surface);font-weight:700;font-size:15px}
+.opt input:checked+span{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.opt input:focus-visible+span{outline:3px solid var(--route);outline-offset:2px}
+.photo-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.photo-row input[type="file"]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.thumb{max-width:100%;max-height:150px;border-radius:8px;border:1px solid var(--line)}
+.err{color:var(--bad);font-weight:700;font-size:15px}
+
+.intro{color:var(--muted);font-size:15px}
+.reps{display:grid;gap:12px}
+.rep{padding:14px;display:grid;gap:10px}
+.rep-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.folio{font:500 14px var(--f-mono);letter-spacing:.02em}
+.rep h3{margin:0;font-size:17px;line-height:1.3}
+.rep-meta{font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.steps li{border-top:4px solid var(--line);padding-top:6px;font-size:13px;color:var(--muted);line-height:1.25}
+.steps li.on{border-top-color:var(--route);color:var(--ink);font-weight:700}
+.steps li.on.last{border-top-color:var(--good)}
+.rep-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.who{font-size:13px;color:var(--muted)}
+.cm{padding:18px;display:grid;gap:20px}
+.cm h2{margin:0 0 4px;font-family:var(--f-display);font-weight:800;font-stretch:75%;font-size:clamp(22px,5vw,28px);line-height:1.05;text-transform:uppercase;letter-spacing:.02em;text-wrap:balance}
+.cm-form,.cm-side{display:grid;gap:12px;align-content:start;min-width:0}
+.cm-list{display:grid;gap:10px}
+.cm-item{border-top:1px solid var(--line);padding-top:10px;display:grid;gap:6px;justify-items:start}
+.cm-item .rep-head{width:100%}
+@media (min-width:900px){.cm{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:32px;align-items:start}}
+
+.gate{position:fixed;top:0;right:0;bottom:0;left:0;inset:0;z-index:3000;background:var(--bg);display:grid;place-items:center;padding:24px max(16px,env(safe-area-inset-left,0px));overflow:auto}
+.gate-box{max-width:440px;width:100%;display:grid;gap:14px;justify-items:start}
+.gate-box h2{margin:0;font-family:var(--f-display);font-weight:900;font-stretch:75%;font-size:clamp(30px,8vw,44px);line-height:1;text-transform:uppercase;text-wrap:balance}
+.gate-box .btn{width:100%}
+.toast{
+  position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);
+  background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:10px;font-weight:700;font-size:15px;
+  max-width:calc(100vw - 32px);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:2000;
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion:reduce){
+  .live::before,.tk-pulse{animation:none}
+  .toast{transition:none}
+}
+button,.chip,.btn,.opt span{touch-action:manipulation}
+/* Celular: primero la distancia del camión, luego el mapa */
+@media (max-width:899px){
+  .panel-col{display:contents}
+  .eta{order:1}
+  .banner{order:2}
+  .map-col{order:3}
+  .panel{order:4}
+  #map{height:clamp(280px,46vh,460px)}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="currentColor"><rect x="1" y="7" width="15" height="11" rx="2"/><path d="M17 11h5l4 5v2h-9z"/><circle cx="7" cy="20" r="3" stroke="var(--accent)" stroke-width="1.5"/><circle cx="21" cy="20" r="3" stroke="var(--accent)" stroke-width="1.5"/></svg>
+      </span>
+      <div>
+        <h1>Ya viene el camión</h1>
+        <p class="sub">San Pablo Zitlaltepec, Tlaxcala</p>
+      </div>
+    </div>
+  </header>
+  <p class="proto">Prototipo: el camión que ves es de prueba, todavía no es un GPS real.</p>
+
+  <main class="layout">
+    <section class="map-col" aria-label="Mapa del pueblo">
+      <div class="card map-card">
+        <div class="map-head">
+          <strong>Camión en vivo</strong>
+          <span class="live">Simulado · toca el mapa para marcar tu casa</span>
+        </div>
+        <div id="map"></div>
+      </div>
+      <div class="demo">
+        <button class="chip" type="button" id="follow" aria-pressed="false">Seguir al camión</button>
+        <button class="chip" type="button" id="goHome" aria-pressed="false">Ver mi casa</button>
+        <button class="chip" type="button" id="useLoc">Mi ubicación</button>
+      </div>
+    </section>
+
+    <section class="panel-col">
+      <div class="card eta" id="eta" data-st="loading"></div>
+      <p class="banner" id="banner" role="status" hidden></p>
+
+      <section class="panel" id="p-camion" aria-label="Avisos del camión">
+        <div class="card alert-set">
+          <label for="alertOn"><input type="checkbox" id="alertOn" checked> Avisarme</label>
+          <label for="alertDist" class="sr-only">Distancia del aviso</label>
+          <select id="alertDist">
+            <option value="200">cuando esté a menos de 200 m</option>
+            <option value="300" selected>cuando esté a menos de 300 m</option>
+            <option value="500">cuando esté a menos de 500 m</option>
+          </select>
+        </div>
+        <div class="card form">
+          <p class="status" id="mapStatus">Buscando las calles de San Pablo Zitlaltepec…</p>
+          <div class="row">
+            <button type="button" class="btn btn-ghost btn-small" id="retry" hidden>Volver a cargar el mapa</button>
+            <button type="button" class="btn btn-ghost btn-small" id="exportWays" hidden>Descargar calles (para el celular)</button>
+            <button type="button" class="btn btn-ghost btn-small" id="importWays" hidden>Cargar calles guardadas</button>
+            <input type="file" id="waysFile" accept=".json,application/json" hidden>
+          </div>
+        </div>
+      </section>
+
+    </section>
+  </main>
+
+  <section class="card cm" aria-labelledby="cmTitle">
+    <form class="cm-form" id="cmForm" novalidate>
+      <div>
+        <h2 id="cmTitle">¿Hubo algún problema con el camión?</h2>
+        <p class="hint">Avisa a tus vecinos. Elige qué pasó y, si quieres, cuéntanos más.</p>
+      </div>
+      <fieldset class="opts">
+        <legend class="sr-only">Qué pasó</legend>
+        <label class="opt"><input type="radio" name="cmtipo" value="retraso"><span>Se retrasó</span></label>
+        <label class="opt"><input type="radio" name="cmtipo" value="nopaso"><span>No pasó</span></label>
+        <label class="opt"><input type="radio" name="cmtipo" value="sinrecoger"><span>Pasó sin recoger</span></label>
+        <label class="opt"><input type="radio" name="cmtipo" value="otro"><span>Otro problema</span></label>
+      </fieldset>
+      <div class="field">
+        <label for="cmText">Detalle (opcional)</label>
+        <textarea id="cmText" name="cmtext" maxlength="200" placeholder="Ej. Hoy no pasó por mi calle."></textarea>
+      </div>
+      <p class="err" id="cmErr" role="alert" hidden></p>
+      <button class="btn btn-primary" type="submit">Enviar comentario</button>
+      <p class="hint" id="cmMail" role="status" hidden></p>
+      <button type="button" class="btn btn-ghost btn-small" id="cmRetry" hidden>Reintentar envío</button>
+      <p class="hint">La primera vez debes confirmar el formulario desde el correo de destino. El sitio también debe abrirse desde un servidor web, no como archivo HTML local.</p>
+    </form>
+    <div class="cm-side">
+      <h2 style="font-size:20px">Comentarios recientes</h2>
+      <div class="cm-list" id="cmList"></div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* Solo si unpkg no carga (bloqueado), se usa la copia de cdnjs. Si unpkg carga, esto no hace nada. */
+if (!window.L) {
+  document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">');
+  document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"><\/script>');
+}
+</script>
+<script>
+(function(){
+  'use strict';
+  var $ = function(s){ return document.querySelector(s); };
+  var KEY = 'yvc_demo_v1';
+  var TOWN = [19.2039, -97.9072];  /* centro de San Pablo Zitlaltepec */
+  var DEFAULT_CENTER = TOWN;
+  var SPEED = 30;      /* metros por segundo en la demo */
+  var REAL_SPEED = 4;  /* metros por segundo reales, para calcular el tiempo estimado */
+  var ENDPOINTS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
+  }
+  function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+  function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+  function isLL(a){ return Array.isArray(a) && a.length === 2 && isFinite(a[0]) && isFinite(a[1]); }
+  function dm(a, b){ return L.latLng(a).distanceTo(L.latLng(b)); }
+
+  var saved = {};
+  try { saved = JSON.parse(lsGet(KEY) || '{}') || {}; } catch(e){ saved = {}; }
+  var state = {center: TOWN, home: (isLL(saved.home) && dm(saved.home, TOWN) < 4000) ? saved.home : TOWN.slice(), acc: +saved.acc > 0 ? +saved.acc : null};
+  function save(){ lsSet(KEY, JSON.stringify(state)); }
+
+  var toastTimer;
+  function toast(msg){
+    var t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 3400);
+  }
+
+  /* ---------- Mapa ---------- */
+  var map = L.map($('#map')).setView(state.center || DEFAULT_CENTER, 16);
+  var tiles = null;
+  function isDark(){
+    var t = document.documentElement.getAttribute('data-theme');
+    if (t) return t === 'dark';
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+  function setTiles(){
+    if (tiles) map.removeLayer(tiles);
+    tiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      attribution: 'Mapa &copy; Esri, HERE, Garmin &middot; Calles &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    });
+    tiles.on('tileload', function(){ $('#map').classList.remove('no-tiles'); });
+    tiles.on('tileerror', function(){ $('#map').classList.add('no-tiles'); });
+    tiles.addTo(map);
+  }
+  setTiles();
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', setTiles);
+  }
+  setTimeout(function(){ map.invalidateSize(); }, 0);
+
+  var trailLine = L.polyline([], {className:'r-done', weight:5, lineCap:'round', lineJoin:'round', interactive:false}).addTo(map);
+  var truckIcon = L.divIcon({
+    className: 'tk-wrap', iconSize: [40, 32], iconAnchor: [20, 15],
+    html: '<div class="tk"><span class="tk-pulse"></span><div class="tk-inner"><svg viewBox="-16 -12 32 26" aria-hidden="true">' +
+      '<rect class="t-body" x="-13" y="-8" width="17" height="12" rx="2"/><path class="t-cab" d="M4 -4 H9 L13 1 V4 H4 Z"/>' +
+      '<circle class="t-wheel" cx="-7" cy="5" r="3"/><circle class="t-wheel" cx="8" cy="5" r="3"/></svg></div></div>'
+  });
+  var truckMarker = L.marker(state.center || DEFAULT_CENTER, {icon: truckIcon, interactive:false, keyboard:false, zIndexOffset:1000, opacity:0}).addTo(map);
+  var truckInner = truckMarker.getElement().querySelector('.tk-inner');
+  var homeMarker = null;
+  function placeHome(){
+    if (!state.home) return;
+    var icon = L.divIcon({
+      className: 'hm-wrap', iconSize: [26, 26], iconAnchor: [13, 13],
+      html: '<div class="hm"><span class="hm-dot"><svg viewBox="-8 -8 16 16" width="14" height="14" aria-hidden="true"><path d="M-6 1 L0 -5 L6 1 V6 H-6 Z" fill="currentColor"/></svg></span><b class="hm-label">Tu casa</b></div>'
+    });
+    if (homeMarker) map.removeLayer(homeMarker);
+    homeMarker = L.marker(state.home, {icon: icon, interactive:false, keyboard:false, zIndexOffset:500}).addTo(map);
+  }
+  map.on('click', function(e){
+    state.home = [+e.latlng.lat.toFixed(6), +e.latlng.lng.toFixed(6)];
+    save(); placeHome(); sig = ''; toast('Tu casa quedó marcada');
+  });
+
+  /* ---------- Calles (OpenStreetMap) ---------- */
+  var G = null, graphReal = false, loading = true, streetError = false;
+
+  function key(lat, lon){ return lat.toFixed(6) + ',' + lon.toFixed(6); }
+  function buildGraph(ways){
+    var nodes = {}, i, k, pk;
+    ways.forEach(function(w){
+      if (!w.geometry || w.geometry.length < 2) return;
+      var name = (w.tags && w.tags.name) || '';
+      for (i = 0; i < w.geometry.length; i++) {
+        var gp = w.geometry[i];
+        if (!gp) continue;
+        k = key(gp.lat, gp.lon);
+        if (!nodes[k]) nodes[k] = {ll:[gp.lat, gp.lon], nb:[]};
+        var pg = i > 0 ? w.geometry[i-1] : null;
+        if (pg) {
+          pk = key(pg.lat, pg.lon);
+          if (pk !== k) {
+            var d = dm(nodes[pk].ll, nodes[k].ll);
+            nodes[pk].nb.push({k:k, d:d, name:name});
+            nodes[k].nb.push({k:pk, d:d, name:name});
+          }
+        }
+      }
+    });
+    /* quedarse con la red de calles conectadas más grande */
+    var seen = {}, best = [], keys = Object.keys(nodes);
+    keys.forEach(function(s){
+      if (seen[s]) return;
+      var comp = [], stack = [s];
+      seen[s] = true;
+      while (stack.length) {
+        var c = stack.pop(); comp.push(c);
+        nodes[c].nb.forEach(function(e){ if (!seen[e.k]) { seen[e.k] = true; stack.push(e.k); } });
+      }
+      if (comp.length > best.length) best = comp;
+    });
+    var out = {};
+    best.forEach(function(s){ out[s] = nodes[s]; });
+    return {nodes: out, keys: best};
+  }
+  function fetchWays(c, R){
+    var q = '[out:json][timeout:25];way["highway"]["highway"!~"footway|path|steps|cycleway|pedestrian|bridleway|corridor|construction|proposed|motorway|motorway_link"]["service"!~"driveway|parking_aisle"](around:' + R + ',' + c[0] + ',' + c[1] + ');out geom;';
+    /* Pide a los servidores casi a la vez (escalonado) y se queda con la primera respuesta buena.
+       Una respuesta vacía (servidor saturado) cuenta como fallo y se prueba el siguiente. */
+    return new Promise(function(resolve, reject){
+      var next = 0, active = 0, done = false, ctrls = [], timers = [];
+      function finish(fn, v){
+        if (done) return;
+        done = true;
+        timers.forEach(function(t){ clearTimeout(t); });
+        ctrls.forEach(function(c){ try { c.abort(); } catch(e){} });
+        fn(v);
+      }
+      function launch(){
+        if (done || next >= ENDPOINTS.length) return false;
+        var url = ENDPOINTS[next++], ctrl = ('AbortController' in window) ? new AbortController() : null;
+        active++;
+        if (ctrl) ctrls.push(ctrl);
+        var to = setTimeout(function(){ if (ctrl) ctrl.abort(); }, 28000);
+        timers.push(to, setTimeout(launch, 5000));
+        fetch(url + '?data=' + encodeURIComponent(q), ctrl ? {signal: ctrl.signal} : {})
+          .then(function(r){ if (!r.ok) throw new Error('http'); return r.json(); })
+          .then(function(j){
+            var els = (j && j.elements) || [];
+            if (els.length < 15) throw new Error('respuesta vacía');
+            finish(resolve, els);
+          })
+          .catch(function(){
+            clearTimeout(to); active--;
+            if (!launch() && active === 0) finish(reject, new Error('sin respuesta'));
+          });
+        return true;
+      }
+      launch();
+    });
+  }
+  var streetLayer = L.layerGroup().addTo(map);
+  function labels(){ $('#map').classList.toggle('lbl-on', map.getZoom() >= 17); }
+  map.on('zoomend', labels);
+  function drawStreets(ways){
+    streetLayer.clearLayers();
+    var names = {};
+    ways.forEach(function(w){
+      var pts = (w.geometry || []).filter(Boolean).map(function(q){ return [q.lat, q.lon]; });
+      if (pts.length < 2) return;
+      L.polyline(pts, {className:'st-line', weight:6, lineCap:'round', lineJoin:'round', interactive:false}).addTo(streetLayer);
+      var n = w.tags && w.tags.name;
+      if (n && (!names[n] || names[n].n < pts.length)) names[n] = {n: pts.length, p: pts[Math.floor(pts.length / 2)]};
+    });
+    Object.keys(names).forEach(function(n){
+      L.marker(names[n].p, {icon: L.divIcon({className:'st-name', iconSize:[0,0], html:'<span>' + esc(n) + '</span>'}), interactive:false, keyboard:false}).addTo(streetLayer);
+    });
+    trailLine.bringToFront(); labels();
+  }
+  /* Vías reales de OpenStreetMap incorporadas para que el mapa no dependa de Overpass. */
+  var EMBEDDED_WAYS = [{"tags":{"name":"Calle 4 Poniente"},"geometry":[{"lat":19.206149,"lon":-97.910398},{"lat":19.206452,"lon":-97.911068},{"lat":19.206628,"lon":-97.9115},{"lat":19.206871,"lon":-97.91207},{"lat":19.206903,"lon":-97.912248},{"lat":19.206851,"lon":-97.912624},{"lat":19.2068,"lon":-97.913534},{"lat":19.206838,"lon":-97.914393},{"lat":19.20687,"lon":-97.914517},{"lat":19.20694,"lon":-97.915965},{"lat":19.206961,"lon":-97.916238},{"lat":19.207008,"lon":-97.916702},{"lat":19.207051,"lon":-97.917235},{"lat":19.207066,"lon":-97.917734},{"lat":19.207068,"lon":-97.918218},{"lat":19.206979,"lon":-97.918789},{"lat":19.206888,"lon":-97.9196},{"lat":19.206862,"lon":-97.919957},{"lat":19.206916,"lon":-97.920205},{"lat":19.207007,"lon":-97.920664},{"lat":19.207202,"lon":-97.9214},{"lat":19.207634,"lon":-97.922506},{"lat":19.207902,"lon":-97.923309}]},{"tags":{"name":"Calle Acapulco"},"geometry":[{"lat":19.191214,"lon":-97.923475},{"lat":19.19135,"lon":-97.924566},{"lat":19.191431,"lon":-97.925123},{"lat":19.191647,"lon":-97.926781},{"lat":19.191709,"lon":-97.927343},{"lat":19.1918,"lon":-97.927823}]},{"tags":{"name":"Calle Xicohténcatl"},"geometry":[{"lat":19.190736,"lon":-97.923402},{"lat":19.190774,"lon":-97.923718},{"lat":19.190873,"lon":-97.924634},{"lat":19.190946,"lon":-97.92519},{"lat":19.191069,"lon":-97.926204},{"lat":19.191145,"lon":-97.926877},{"lat":19.191208,"lon":-97.927404},{"lat":19.191304,"lon":-97.927926}]},{"tags":{"name":"Calle Echeverría"},"geometry":[{"lat":19.190689,"lon":-97.926929},{"lat":19.190586,"lon":-97.926291},{"lat":19.190456,"lon":-97.925262},{"lat":19.190429,"lon":-97.925012},{"lat":19.190394,"lon":-97.924884},{"lat":19.190306,"lon":-97.924748},{"lat":19.190151,"lon":-97.924574},{"lat":19.190048,"lon":-97.924427},{"lat":19.189937,"lon":-97.924196},{"lat":19.189675,"lon":-97.923685}]},{"tags":{"name":"Calle Emiliano Zapata"},"geometry":[{"lat":19.196291,"lon":-97.916795},{"lat":19.196020999999998,"lon":-97.916253},{"lat":19.195952,"lon":-97.916155},{"lat":19.194778,"lon":-97.913781},{"lat":19.194617,"lon":-97.913559}]},{"tags":{"name":"Calle Morelos"},"geometry":[{"lat":19.195644,"lon":-97.913087},{"lat":19.195744,"lon":-97.913489},{"lat":19.195901,"lon":-97.913976},{"lat":19.196387,"lon":-97.915},{"lat":19.196806,"lon":-97.915822},{"lat":19.196981,"lon":-97.916183},{"lat":19.197028,"lon":-97.916254}]},{"tags":{"name":""},"geometry":[{"lat":19.194558,"lon":-97.916989},{"lat":19.195952,"lon":-97.916155}]},{"tags":{"name":"Calle 9 Poniente"},"geometry":[{"lat":19.199928,"lon":-97.91347},{"lat":19.199904,"lon":-97.913396},{"lat":19.199566,"lon":-97.910526}]},{"tags":{"name":"Calle 12 Poniente"},"geometry":[{"lat":19.209359,"lon":-97.915813},{"lat":19.209169,"lon":-97.913654},{"lat":19.209076,"lon":-97.91284},{"lat":19.20908,"lon":-97.912618},{"lat":19.209093,"lon":-97.912419},{"lat":19.209115,"lon":-97.911189},{"lat":19.209133,"lon":-97.910167},{"lat":19.209122,"lon":-97.908727},{"lat":19.209124,"lon":-97.907809}]},{"tags":{"name":"Calle 10 Norte"},"geometry":[{"lat":19.209989,"lon":-97.901938},{"lat":19.209098,"lon":-97.901935},{"lat":19.20736,"lon":-97.901827},{"lat":19.206192,"lon":-97.901746}]},{"tags":{"name":"Calle 10 Oriente"},"geometry":[{"lat":19.209882,"lon":-97.900601},{"lat":19.209989,"lon":-97.901938},{"lat":19.210056,"lon":-97.902911},{"lat":19.210064,"lon":-97.903018},{"lat":19.210241,"lon":-97.905386},{"lat":19.210334,"lon":-97.906551},{"lat":19.210372,"lon":-97.907702}]},{"tags":{"name":"3 Poniente"},"geometry":[{"lat":19.20694,"lon":-97.915965},{"lat":19.20667,"lon":-97.916032},{"lat":19.205895,"lon":-97.916122},{"lat":19.205767,"lon":-97.916132},{"lat":19.205416,"lon":-97.91615},{"lat":19.205184,"lon":-97.916147},{"lat":19.204259,"lon":-97.916123},{"lat":19.204045,"lon":-97.91618}]},{"tags":{"name":""},"geometry":[{"lat":19.197271,"lon":-97.882269},{"lat":19.19741,"lon":-97.882318},{"lat":19.19774,"lon":-97.882283},{"lat":19.197864,"lon":-97.882361},{"lat":19.198125,"lon":-97.88294},{"lat":19.198328,"lon":-97.88397},{"lat":19.19892,"lon":-97.889426},{"lat":19.199037,"lon":-97.891177},{"lat":19.199092,"lon":-97.891341},{"lat":19.199257,"lon":-97.891558},{"lat":19.199277,"lon":-97.891738},{"lat":19.199206,"lon":-97.892116},{"lat":19.199166,"lon":-97.892376},{"lat":19.19927,"lon":-97.89339},{"lat":19.199252,"lon":-97.893511}]},{"tags":{"name":"Calle 4 Sur"},"geometry":[{"lat":19.19936,"lon":-97.906769},{"lat":19.200828,"lon":-97.906597}]},{"tags":{"name":"Calle 8 Norte"},"geometry":[{"lat":19.210056,"lon":-97.902911},{"lat":19.20911,"lon":-97.902898},{"lat":19.207188,"lon":-97.902885},{"lat":19.206042,"lon":-97.902852}]},{"tags":{"name":"Calle 5 de Mayo"},"geometry":[{"lat":19.210372,"lon":-97.907702},{"lat":19.209124,"lon":-97.907809},{"lat":19.207621,"lon":-97.907884},{"lat":19.206624,"lon":-97.907939},{"lat":19.205757,"lon":-97.907957},{"lat":19.205425,"lon":-97.90802}]},{"tags":{"name":"Calle Independencia"},"geometry":[{"lat":19.204642,"lon":-97.908437},{"lat":19.203591,"lon":-97.908702}]},{"tags":{"name":"Calle 2 Oriente"},"geometry":[{"lat":19.205056,"lon":-97.905403},{"lat":19.205174,"lon":-97.90601},{"lat":19.205352,"lon":-97.907137},{"lat":19.205417,"lon":-97.907585},{"lat":19.205425,"lon":-97.90802}]},{"tags":{"name":"Calle 6 Oriente"},"geometry":[{"lat":19.20736,"lon":-97.901827},{"lat":19.207188,"lon":-97.902885},{"lat":19.207,"lon":-97.904019},{"lat":19.206918,"lon":-97.90491},{"lat":19.206873,"lon":-97.9058},{"lat":19.207222,"lon":-97.906762},{"lat":19.207621,"lon":-97.907884}]},{"tags":{"name":"Calle 2 Norte"},"geometry":[{"lat":19.210334,"lon":-97.906551},{"lat":19.209122,"lon":-97.90662},{"lat":19.207222,"lon":-97.906762},{"lat":19.206305,"lon":-97.906956},{"lat":19.205352,"lon":-97.907137},{"lat":19.204471,"lon":-97.907296},{"lat":19.204268,"lon":-97.907346}]},{"tags":{"name":"Calle Adolfo López Mateos"},"geometry":[{"lat":19.204259,"lon":-97.916123},{"lat":19.204903,"lon":-97.912915},{"lat":19.204982,"lon":-97.91221},{"lat":19.205044,"lon":-97.911536},{"lat":19.205122,"lon":-97.910501},{"lat":19.205001,"lon":-97.909511},{"lat":19.204887,"lon":-97.908705},{"lat":19.204852,"lon":-97.908637},{"lat":19.204769,"lon":-97.908585},{"lat":19.204714,"lon":-97.908518},{"lat":19.204642,"lon":-97.908437},{"lat":19.204588,"lon":-97.908238}]},{"tags":{"name":"Calle 2 Poniente"},"geometry":[{"lat":19.205895,"lon":-97.916122},{"lat":19.205853,"lon":-97.915667},{"lat":19.205831,"lon":-97.915447},{"lat":19.20581,"lon":-97.913884},{"lat":19.205804,"lon":-97.913462},{"lat":19.205795,"lon":-97.911508},{"lat":19.205791,"lon":-97.910432}]},{"tags":{"name":"Calle 13 Norte"},"geometry":[{"lat":19.205416,"lon":-97.91615},{"lat":19.205632,"lon":-97.915727},{"lat":19.205831,"lon":-97.915447},{"lat":19.20627,"lon":-97.914967},{"lat":19.206647,"lon":-97.91464},{"lat":19.20676,"lon":-97.914532}]},{"tags":{"name":"Calle 7 Norte"},"geometry":[{"lat":19.210381,"lon":-97.911205},{"lat":19.210482,"lon":-97.911284},{"lat":19.21052,"lon":-97.91139},{"lat":19.210582,"lon":-97.911559},{"lat":19.211205,"lon":-97.912337},{"lat":19.211813,"lon":-97.913109},{"lat":19.21272,"lon":-97.914239},{"lat":19.213421,"lon":-97.91492}]},{"tags":{"name":"Calle 18 Poniente"},"geometry":[{"lat":19.21428,"lon":-97.913942},{"lat":19.213899,"lon":-97.912644},{"lat":19.213562,"lon":-97.911454},{"lat":19.213528,"lon":-97.911342},{"lat":19.213462,"lon":-97.911141},{"lat":19.213298,"lon":-97.910634},{"lat":19.213215,"lon":-97.910328},{"lat":19.213108,"lon":-97.909885}]},{"tags":{"name":"Calle 7 Norte"},"geometry":[{"lat":19.219181,"lon":-97.911037},{"lat":19.218684,"lon":-97.910998},{"lat":19.217859,"lon":-97.910977},{"lat":19.216766,"lon":-97.910993},{"lat":19.215003,"lon":-97.911035},{"lat":19.213842,"lon":-97.91109},{"lat":19.213636,"lon":-97.911086},{"lat":19.213602,"lon":-97.911092},{"lat":19.213462,"lon":-97.911141},{"lat":19.213309,"lon":-97.9112},{"lat":19.213091,"lon":-97.911251}]},{"tags":{"name":"Calle 10 Poniente"},"geometry":[{"lat":19.207456,"lon":-97.913863},{"lat":19.208083,"lon":-97.911147},{"lat":19.208212,"lon":-97.91025}]},{"tags":{"name":"Calle 9 Norte"},"geometry":[{"lat":19.2068,"lon":-97.913534},{"lat":19.206254,"lon":-97.913494},{"lat":19.205804,"lon":-97.913462}]},{"tags":{"name":"Calle M. Pérez"},"geometry":[{"lat":19.20627,"lon":-97.914967},{"lat":19.206271,"lon":-97.913927},{"lat":19.206254,"lon":-97.913494}]},{"tags":{"name":"Calle 11 Norte"},"geometry":[{"lat":19.206271,"lon":-97.913927},{"lat":19.20581,"lon":-97.913884}]},{"tags":{"name":"Calle 6 Poniente"},"geometry":[{"lat":19.206531,"lon":-97.910359},{"lat":19.20618,"lon":-97.909284},{"lat":19.205757,"lon":-97.907957}]},{"tags":{"name":"Calle 7 Poniente"},"geometry":[{"lat":19.200666,"lon":-97.910336},{"lat":19.200952,"lon":-97.911961},{"lat":19.200973,"lon":-97.912044}]},{"tags":{"name":"Carretera Ixtenco - Zitlaltepec"},"geometry":[{"lat":19.21388,"lon":-97.909767},{"lat":19.214057,"lon":-97.909664},{"lat":19.214175,"lon":-97.909547},{"lat":19.21473,"lon":-97.908883},{"lat":19.214967,"lon":-97.908591},{"lat":19.215344,"lon":-97.908126},{"lat":19.21634,"lon":-97.906903},{"lat":19.216722,"lon":-97.906479},{"lat":19.217029,"lon":-97.906256},{"lat":19.217574,"lon":-97.905997},{"lat":19.21844,"lon":-97.905583}]},{"tags":{"name":"Calle Benito Juárez"},"geometry":[{"lat":19.204108,"lon":-97.905953},{"lat":19.204131,"lon":-97.906142},{"lat":19.204253,"lon":-97.907288},{"lat":19.204268,"lon":-97.907346},{"lat":19.204588,"lon":-97.908238}]},{"tags":{"name":"Calle Independencia"},"geometry":[{"lat":19.202385,"lon":-97.909102},{"lat":19.201462,"lon":-97.909365}]},{"tags":{"name":"Calle 7 Norte"},"geometry":[{"lat":19.210381,"lon":-97.911205},{"lat":19.209115,"lon":-97.911189},{"lat":19.208083,"lon":-97.911147},{"lat":19.206452,"lon":-97.911068}]},{"tags":{"name":"Calle 7 Norte"},"geometry":[{"lat":19.206628,"lon":-97.9115},{"lat":19.205795,"lon":-97.911508},{"lat":19.205044,"lon":-97.911536}]},{"tags":{"name":"Calle 8 Poniente"},"geometry":[{"lat":19.206624,"lon":-97.907939},{"lat":19.20705,"lon":-97.909105},{"lat":19.207451,"lon":-97.910276}]},{"tags":{"name":"Calle 10 Poniente"},"geometry":[{"lat":19.207621,"lon":-97.907884},{"lat":19.20801,"lon":-97.908949},{"lat":19.208471,"lon":-97.910221}]},{"tags":{"name":"Calle 8 Oriente"},"geometry":[{"lat":19.209124,"lon":-97.907809},{"lat":19.209122,"lon":-97.90662},{"lat":19.209118,"lon":-97.905513},{"lat":19.209132,"lon":-97.904084},{"lat":19.20911,"lon":-97.902898},{"lat":19.209098,"lon":-97.901935}]},{"tags":{"name":"Calle 14 Poniente"},"geometry":[{"lat":19.210372,"lon":-97.907702},{"lat":19.210386,"lon":-97.908477},{"lat":19.210443,"lon":-97.910086},{"lat":19.210381,"lon":-97.911205}]},{"tags":{"name":"Calle 4 Oriente"},"geometry":[{"lat":19.205644,"lon":-97.905},{"lat":19.20594,"lon":-97.905926},{"lat":19.206305,"lon":-97.906956},{"lat":19.206624,"lon":-97.907939}]},{"tags":{"name":"Calle 5 Oriente"},"geometry":[{"lat":19.202385,"lon":-97.909102},{"lat":19.202366,"lon":-97.909037},{"lat":19.201992,"lon":-97.907634},{"lat":19.201675,"lon":-97.906463},{"lat":19.201195,"lon":-97.904736},{"lat":19.20066,"lon":-97.902767},{"lat":19.200276,"lon":-97.901383}]},{"tags":{"name":"Calle 5 Poniente"},"geometry":[{"lat":19.201462,"lon":-97.909365},{"lat":19.201679,"lon":-97.910158},{"lat":19.201792,"lon":-97.910866},{"lat":19.201843,"lon":-97.91095}]},{"tags":{"name":"Calle 3 Sur"},"geometry":[{"lat":19.200182,"lon":-97.910406},{"lat":19.200666,"lon":-97.910336},{"lat":19.201679,"lon":-97.910158},{"lat":19.20222,"lon":-97.910036}]},{"tags":{"name":"Calle 3 Norte"},"geometry":[{"lat":19.205001,"lon":-97.909511},{"lat":19.205682,"lon":-97.909376},{"lat":19.20618,"lon":-97.909284},{"lat":19.20705,"lon":-97.909105},{"lat":19.20801,"lon":-97.908949},{"lat":19.209122,"lon":-97.908727},{"lat":19.210386,"lon":-97.908477},{"lat":19.211206,"lon":-97.908319},{"lat":19.211323,"lon":-97.908332}]},{"tags":{"name":"Calle 2 Sur"},"geometry":[{"lat":19.203499,"lon":-97.907398},{"lat":19.202869,"lon":-97.907489},{"lat":19.201992,"lon":-97.907634},{"lat":19.201101,"lon":-97.907804}]},{"tags":{"name":"Calle 4 Norte"},"geometry":[{"lat":19.204131,"lon":-97.906142},{"lat":19.205174,"lon":-97.90601},{"lat":19.20594,"lon":-97.905926},{"lat":19.206873,"lon":-97.9058},{"lat":19.209118,"lon":-97.905513},{"lat":19.210241,"lon":-97.905386}]},{"tags":{"name":"Calle 6 Norte"},"geometry":[{"lat":19.203988,"lon":-97.904376},{"lat":19.205031,"lon":-97.90425},{"lat":19.205376,"lon":-97.90421},{"lat":19.205719,"lon":-97.904154}]},{"tags":{"name":"Calle 7 Oriente"},"geometry":[{"lat":19.199662,"lon":-97.901337},{"lat":19.199963,"lon":-97.902791},{"lat":19.200271,"lon":-97.90404}]},{"tags":{"name":"Calle 10 Sur"},"geometry":[{"lat":19.203746,"lon":-97.901609},{"lat":19.201901,"lon":-97.901465},{"lat":19.201091,"lon":-97.90142},{"lat":19.200276,"lon":-97.901383},{"lat":19.200074,"lon":-97.901372},{"lat":19.199662,"lon":-97.901337},{"lat":19.198979,"lon":-97.901308}]},{"tags":{"name":"Calle 8 Sur"},"geometry":[{"lat":19.203865,"lon":-97.902796},{"lat":19.202624,"lon":-97.902788},{"lat":19.201509,"lon":-97.902751},{"lat":19.20066,"lon":-97.902767}]},{"tags":{"name":"Calle 7 Sur"},"geometry":[{"lat":19.205044,"lon":-97.911536},{"lat":19.204179,"lon":-97.911558}]},{"tags":{"name":"5 Sur"},"geometry":[{"lat":19.199928,"lon":-97.91347},{"lat":19.200238,"lon":-97.913119},{"lat":19.200592,"lon":-97.912606},{"lat":19.200973,"lon":-97.912044},{"lat":19.20152,"lon":-97.911249},{"lat":19.201652,"lon":-97.911091},{"lat":19.201843,"lon":-97.91095}]},{"tags":{"name":"Calle 5 Norte"},"geometry":[{"lat":19.205122,"lon":-97.910501},{"lat":19.205791,"lon":-97.910432},{"lat":19.206149,"lon":-97.910398},{"lat":19.206531,"lon":-97.910359},{"lat":19.207451,"lon":-97.910276},{"lat":19.208212,"lon":-97.91025},{"lat":19.208471,"lon":-97.910221},{"lat":19.209133,"lon":-97.910167},{"lat":19.210443,"lon":-97.910086},{"lat":19.211135,"lon":-97.910034},{"lat":19.211337,"lon":-97.910025},{"lat":19.211508,"lon":-97.909994},{"lat":19.212593,"lon":-97.909923},{"lat":19.212793,"lon":-97.909901},{"lat":19.213108,"lon":-97.909885},{"lat":19.213674,"lon":-97.909841},{"lat":19.21388,"lon":-97.909767}]},{"tags":{"name":""},"geometry":[{"lat":19.205578,"lon":-97.925669},{"lat":19.205979,"lon":-97.925252},{"lat":19.206164,"lon":-97.925067},{"lat":19.207083,"lon":-97.924136},{"lat":19.207807,"lon":-97.923406}]},{"tags":{"name":""},"geometry":[{"lat":19.207902,"lon":-97.923309},{"lat":19.20814,"lon":-97.923864}]},{"tags":{"name":""},"geometry":[{"lat":19.203092,"lon":-97.916304},{"lat":19.202759,"lon":-97.916307},{"lat":19.202322,"lon":-97.91628},{"lat":19.201954,"lon":-97.916292},{"lat":19.200967,"lon":-97.916285},{"lat":19.200004,"lon":-97.916293},{"lat":19.199581,"lon":-97.916319}]},{"tags":{"name":""},"geometry":[{"lat":19.20431,"lon":-97.948531},{"lat":19.203833,"lon":-97.945895},{"lat":19.203694,"lon":-97.945437},{"lat":19.203577,"lon":-97.945065},{"lat":19.2035,"lon":-97.944769},{"lat":19.203452,"lon":-97.944531},{"lat":19.203232,"lon":-97.943088},{"lat":19.20311,"lon":-97.942795},{"lat":19.20283,"lon":-97.942354},{"lat":19.202706,"lon":-97.941798},{"lat":19.202474,"lon":-97.940197},{"lat":19.201716,"lon":-97.937302},{"lat":19.201481,"lon":-97.936273},{"lat":19.200806,"lon":-97.933247},{"lat":19.200262,"lon":-97.931517},{"lat":19.200172,"lon":-97.931179},{"lat":19.200111,"lon":-97.930661},{"lat":19.200002,"lon":-97.929956},{"lat":19.19986,"lon":-97.929035},{"lat":19.199809,"lon":-97.928662},{"lat":19.199698,"lon":-97.927942},{"lat":19.199723,"lon":-97.926987},{"lat":19.199655,"lon":-97.925218},{"lat":19.199699,"lon":-97.924548},{"lat":19.199802,"lon":-97.924246},{"lat":19.199816,"lon":-97.924106},{"lat":19.19954,"lon":-97.922383},{"lat":19.199552,"lon":-97.922288},{"lat":19.199692,"lon":-97.921645},{"lat":19.199693,"lon":-97.921546},{"lat":19.199564,"lon":-97.921203},{"lat":19.199593,"lon":-97.921117},{"lat":19.19967,"lon":-97.921058},{"lat":19.200104,"lon":-97.921055},{"lat":19.200207,"lon":-97.92102},{"lat":19.200289,"lon":-97.920927},{"lat":19.200638,"lon":-97.920349},{"lat":19.200939,"lon":-97.919984},{"lat":19.200981,"lon":-97.919891}]},{"tags":{"name":""},"geometry":[{"lat":19.19359,"lon":-97.93151},{"lat":19.193658,"lon":-97.931519},{"lat":19.193685,"lon":-97.93151},{"lat":19.19374,"lon":-97.93144},{"lat":19.193804,"lon":-97.931268},{"lat":19.193819,"lon":-97.930965},{"lat":19.193831,"lon":-97.930858},{"lat":19.19409,"lon":-97.930589},{"lat":19.19413,"lon":-97.930455},{"lat":19.194118,"lon":-97.930246},{"lat":19.193895,"lon":-97.92953},{"lat":19.193855,"lon":-97.928708},{"lat":19.193847,"lon":-97.928459},{"lat":19.193897,"lon":-97.928299},{"lat":19.193995,"lon":-97.927961},{"lat":19.194007,"lon":-97.927776},{"lat":19.194009,"lon":-97.927479},{"lat":19.194211,"lon":-97.927242},{"lat":19.194328,"lon":-97.926947},{"lat":19.194455,"lon":-97.926783},{"lat":19.194794,"lon":-97.926673},{"lat":19.195312,"lon":-97.926281},{"lat":19.195739,"lon":-97.925544},{"lat":19.195962,"lon":-97.924865},{"lat":19.196633,"lon":-97.923854},{"lat":19.197023,"lon":-97.923602},{"lat":19.197107,"lon":-97.923489},{"lat":19.19735,"lon":-97.922977},{"lat":19.197575,"lon":-97.922698},{"lat":19.197679,"lon":-97.922242},{"lat":19.197808,"lon":-97.921979},{"lat":19.197938,"lon":-97.921652},{"lat":19.198014,"lon":-97.921204},{"lat":19.198077,"lon":-97.921014}]},{"tags":{"name":"Calle Bugambilias"},"geometry":[{"lat":19.194009,"lon":-97.927479},{"lat":19.193998,"lon":-97.927058},{"lat":19.193886,"lon":-97.925924},{"lat":19.193537,"lon":-97.924284},{"lat":19.193544,"lon":-97.923486},{"lat":19.19352,"lon":-97.922945},{"lat":19.193616,"lon":-97.922305},{"lat":19.193664,"lon":-97.922167},{"lat":19.193752,"lon":-97.922088},{"lat":19.194024,"lon":-97.921969},{"lat":19.194125,"lon":-97.921849},{"lat":19.194153,"lon":-97.92171},{"lat":19.194116,"lon":-97.921301}]},{"tags":{"name":"Calle Reforma"},"geometry":[{"lat":19.199655,"lon":-97.925218},{"lat":19.199479,"lon":-97.924892},{"lat":19.199379,"lon":-97.924735},{"lat":19.199184,"lon":-97.924432},{"lat":19.199029,"lon":-97.923196},{"lat":19.198944,"lon":-97.92303},{"lat":19.198716,"lon":-97.92286},{"lat":19.198587,"lon":-97.922722},{"lat":19.198287,"lon":-97.922033},{"lat":19.198157,"lon":-97.921717},{"lat":19.198125,"lon":-97.921424},{"lat":19.198102,"lon":-97.921204},{"lat":19.198077,"lon":-97.921014}]},{"tags":{"name":""},"geometry":[{"lat":19.197551,"lon":-97.893408},{"lat":19.197917,"lon":-97.893578},{"lat":19.198107,"lon":-97.893611},{"lat":19.199038,"lon":-97.893449},{"lat":19.199179,"lon":-97.893447},{"lat":19.199252,"lon":-97.893511},{"lat":19.199278,"lon":-97.893594},{"lat":19.199256,"lon":-97.893746},{"lat":19.199349,"lon":-97.893786},{"lat":19.199456,"lon":-97.893798},{"lat":19.199737,"lon":-97.893806},{"lat":19.201154,"lon":-97.893862},{"lat":19.202051,"lon":-97.893588},{"lat":19.202922,"lon":-97.893116},{"lat":19.204664,"lon":-97.892369},{"lat":19.205339,"lon":-97.892062},{"lat":19.20664,"lon":-97.891498},{"lat":19.208024,"lon":-97.89096},{"lat":19.208562,"lon":-97.890771},{"lat":19.208786,"lon":-97.890691},{"lat":19.208886,"lon":-97.890642},{"lat":19.209042,"lon":-97.890595},{"lat":19.209202,"lon":-97.890573}]},{"tags":{"name":""},"geometry":[{"lat":19.208886,"lon":-97.890642},{"lat":19.208938,"lon":-97.890468},{"lat":19.20888,"lon":-97.890126},{"lat":19.208796,"lon":-97.889711},{"lat":19.208494,"lon":-97.888731},{"lat":19.208326,"lon":-97.888265},{"lat":19.208211,"lon":-97.887899},{"lat":19.208036,"lon":-97.887453},{"lat":19.20786,"lon":-97.886994},{"lat":19.207592,"lon":-97.886028},{"lat":19.207546,"lon":-97.885816},{"lat":19.207179,"lon":-97.884749},{"lat":19.207046,"lon":-97.884434},{"lat":19.206942,"lon":-97.884142},{"lat":19.206988,"lon":-97.883642},{"lat":19.207011,"lon":-97.883452},{"lat":19.207175,"lon":-97.88324},{"lat":19.207198,"lon":-97.883132},{"lat":19.207142,"lon":-97.882841},{"lat":19.20712,"lon":-97.882444},{"lat":19.207097,"lon":-97.881573},{"lat":19.207118,"lon":-97.881135},{"lat":19.20706,"lon":-97.880884},{"lat":19.20709,"lon":-97.880545},{"lat":19.207094,"lon":-97.878687},{"lat":19.207121,"lon":-97.878465},{"lat":19.207175,"lon":-97.87828},{"lat":19.207275,"lon":-97.878001},{"lat":19.207278,"lon":-97.877904},{"lat":19.207228,"lon":-97.877806},{"lat":19.207149,"lon":-97.877687},{"lat":19.207044,"lon":-97.877541},{"lat":19.20694,"lon":-97.87735}]},{"tags":{"name":"Calle 7 Oriente"},"geometry":[{"lat":19.200271,"lon":-97.90404},{"lat":19.200458,"lon":-97.904816},{"lat":19.200828,"lon":-97.906597},{"lat":19.201101,"lon":-97.907804},{"lat":19.201462,"lon":-97.909365}]},{"tags":{"name":"Calle 8 Sur"},"geometry":[{"lat":19.20066,"lon":-97.902767},{"lat":19.199963,"lon":-97.902791}]},{"tags":{"name":"Calle 4 Sur"},"geometry":[{"lat":19.200828,"lon":-97.906597},{"lat":19.201675,"lon":-97.906463},{"lat":19.202541,"lon":-97.906348},{"lat":19.203652,"lon":-97.906181}]},{"tags":{"name":"Calle 5 Sur"},"geometry":[{"lat":19.203662,"lon":-97.910651},{"lat":19.203813,"lon":-97.910622}]},{"tags":{"name":""},"geometry":[{"lat":19.202922,"lon":-97.893116},{"lat":19.202522,"lon":-97.889042},{"lat":19.202033,"lon":-97.88434},{"lat":19.201679,"lon":-97.881601},{"lat":19.201552,"lon":-97.881017},{"lat":19.201671,"lon":-97.880582},{"lat":19.202406,"lon":-97.879646},{"lat":19.202469,"lon":-97.879429},{"lat":19.202479,"lon":-97.878954},{"lat":19.202444,"lon":-97.87868},{"lat":19.202496,"lon":-97.878238},{"lat":19.202782,"lon":-97.877715},{"lat":19.202831,"lon":-97.877487},{"lat":19.202874,"lon":-97.87715},{"lat":19.203042,"lon":-97.876771},{"lat":19.203084,"lon":-97.876434},{"lat":19.203165,"lon":-97.876011},{"lat":19.203172,"lon":-97.875694},{"lat":19.203133,"lon":-97.875568},{"lat":19.202984,"lon":-97.87521},{"lat":19.202664,"lon":-97.874024},{"lat":19.202483,"lon":-97.873504},{"lat":19.202427,"lon":-97.87324},{"lat":19.202477,"lon":-97.872993},{"lat":19.202532,"lon":-97.872788},{"lat":19.20263,"lon":-97.872332},{"lat":19.202793,"lon":-97.871441},{"lat":19.202801,"lon":-97.871047},{"lat":19.202915,"lon":-97.870476},{"lat":19.202783,"lon":-97.867608},{"lat":19.202736,"lon":-97.866809},{"lat":19.202753,"lon":-97.866715},{"lat":19.203021,"lon":-97.8661}]},{"tags":{"name":"Calle 5 Sur"},"geometry":[{"lat":19.203813,"lon":-97.910622},{"lat":19.204064,"lon":-97.910572},{"lat":19.204631,"lon":-97.910518},{"lat":19.205122,"lon":-97.910501}]},{"tags":{"name":""},"geometry":[{"lat":19.22686,"lon":-97.890853},{"lat":19.225839,"lon":-97.890517},{"lat":19.225719,"lon":-97.890498},{"lat":19.224958,"lon":-97.89052},{"lat":19.223852,"lon":-97.890476},{"lat":19.22271,"lon":-97.890358},{"lat":19.220935,"lon":-97.890107},{"lat":19.219608,"lon":-97.889834},{"lat":19.218441,"lon":-97.889613},{"lat":19.218083,"lon":-97.889581},{"lat":19.217805,"lon":-97.88959},{"lat":19.216775,"lon":-97.889718},{"lat":19.212862,"lon":-97.890168},{"lat":19.209408,"lon":-97.890578},{"lat":19.209202,"lon":-97.890573}]},{"tags":{"name":"Calle Reforma"},"geometry":[{"lat":19.1941,"lon":-97.914295},{"lat":19.194266,"lon":-97.913919},{"lat":19.194428,"lon":-97.913722},{"lat":19.194617,"lon":-97.913559},{"lat":19.195369,"lon":-97.913128},{"lat":19.195644,"lon":-97.913087},{"lat":19.19605,"lon":-97.913144},{"lat":19.196458,"lon":-97.913378},{"lat":19.196858,"lon":-97.913713},{"lat":19.197424,"lon":-97.914433},{"lat":19.197688,"lon":-97.914906},{"lat":19.197936,"lon":-97.915475},{"lat":19.197944,"lon":-97.915565}]},{"tags":{"name":"Calle 6 Sur"},"geometry":[{"lat":19.198128,"lon":-97.905162},{"lat":19.199288,"lon":-97.904998},{"lat":19.200458,"lon":-97.904816},{"lat":19.201195,"lon":-97.904736},{"lat":19.202031,"lon":-97.904623},{"lat":19.20325,"lon":-97.90445},{"lat":19.203988,"lon":-97.904376}]},{"tags":{"name":""},"geometry":[{"lat":19.21681,"lon":-97.871528},{"lat":19.216558,"lon":-97.871703},{"lat":19.216092,"lon":-97.872039},{"lat":19.215164,"lon":-97.872549},{"lat":19.215062,"lon":-97.872739},{"lat":19.215007,"lon":-97.872978},{"lat":19.215067,"lon":-97.873559},{"lat":19.215055,"lon":-97.873668},{"lat":19.214556,"lon":-97.875286},{"lat":19.214222,"lon":-97.876232},{"lat":19.214087,"lon":-97.876881},{"lat":19.213922,"lon":-97.877354},{"lat":19.213829,"lon":-97.87748},{"lat":19.213582,"lon":-97.877716},{"lat":19.213307,"lon":-97.878139},{"lat":19.212791,"lon":-97.879112},{"lat":19.2123,"lon":-97.87961},{"lat":19.21194,"lon":-97.880204},{"lat":19.211471,"lon":-97.881035},{"lat":19.211153,"lon":-97.881852},{"lat":19.209383,"lon":-97.88989},{"lat":19.209383,"lon":-97.890402}]},{"tags":{"name":"Calle 3 Oriente"},"geometry":[{"lat":19.199849,"lon":-97.898642},{"lat":19.200407,"lon":-97.899798},{"lat":19.200666,"lon":-97.900385},{"lat":19.200904,"lon":-97.90093},{"lat":19.201091,"lon":-97.90142},{"lat":19.201509,"lon":-97.902751},{"lat":19.202031,"lon":-97.904623},{"lat":19.202541,"lon":-97.906348},{"lat":19.202869,"lon":-97.907489},{"lat":19.203239,"lon":-97.908803}]},{"tags":{"name":"Calle 10 Oriente"},"geometry":[{"lat":19.210336,"lon":-97.898524},{"lat":19.210144,"lon":-97.898725},{"lat":19.210093,"lon":-97.898789},{"lat":19.210012,"lon":-97.898886},{"lat":19.209908,"lon":-97.899047},{"lat":19.209844,"lon":-97.899235},{"lat":19.209811,"lon":-97.899391},{"lat":19.209817,"lon":-97.899682},{"lat":19.209882,"lon":-97.900601}]},{"tags":{"name":""},"geometry":[{"lat":19.21257,"lon":-97.898537},{"lat":19.21324,"lon":-97.897728},{"lat":19.213808,"lon":-97.897022},{"lat":19.213856,"lon":-97.896981},{"lat":19.213935,"lon":-97.896906},{"lat":19.214,"lon":-97.89678},{"lat":19.214025,"lon":-97.896736},{"lat":19.214181,"lon":-97.896494},{"lat":19.21474,"lon":-97.895828},{"lat":19.215012,"lon":-97.895475},{"lat":19.21518,"lon":-97.895254},{"lat":19.21545,"lon":-97.894925},{"lat":19.216519,"lon":-97.89369},{"lat":19.216621,"lon":-97.89359},{"lat":19.216851,"lon":-97.89336},{"lat":19.217476,"lon":-97.892509},{"lat":19.217488,"lon":-97.892484},{"lat":19.217535,"lon":-97.892404},{"lat":19.217547,"lon":-97.892385},{"lat":19.217776,"lon":-97.892113},{"lat":19.217807,"lon":-97.89207},{"lat":19.218066,"lon":-97.891688},{"lat":19.219084,"lon":-97.89055},{"lat":19.219183,"lon":-97.89039},{"lat":19.219206,"lon":-97.890356},{"lat":19.219608,"lon":-97.889834}]},{"tags":{"name":""},"geometry":[{"lat":19.190774,"lon":-97.923718},{"lat":19.191214,"lon":-97.923475}]},{"tags":{"name":""},"geometry":[{"lat":19.191662,"lon":-97.92324},{"lat":19.191214,"lon":-97.923475}]},{"tags":{"name":""},"geometry":[{"lat":19.189675,"lon":-97.923685},{"lat":19.189577,"lon":-97.923776},{"lat":19.189433,"lon":-97.923886},{"lat":19.189003,"lon":-97.924214},{"lat":19.188894,"lon":-97.924431},{"lat":19.188859,"lon":-97.924591},{"lat":19.188917,"lon":-97.924957},{"lat":19.188982,"lon":-97.925403}]},{"tags":{"name":"Prolongación 2 Poniente"},"geometry":[{"lat":19.205788,"lon":-97.918151},{"lat":19.205767,"lon":-97.916132}]},{"tags":{"name":"4 Poniente"},"geometry":[{"lat":19.20676,"lon":-97.914532},{"lat":19.20687,"lon":-97.914517},{"lat":19.206997,"lon":-97.914454},{"lat":19.207206,"lon":-97.914276},{"lat":19.209076,"lon":-97.91284}]},{"tags":{"name":"Calle 13 Norte"},"geometry":[{"lat":19.20676,"lon":-97.914532},{"lat":19.206838,"lon":-97.914393},{"lat":19.206897,"lon":-97.914286},{"lat":19.206994,"lon":-97.91418},{"lat":19.207456,"lon":-97.913863},{"lat":19.20908,"lon":-97.912618},{"lat":19.21052,"lon":-97.91139},{"lat":19.21061,"lon":-97.91126},{"lat":19.211281,"lon":-97.910298},{"lat":19.211327,"lon":-97.91018},{"lat":19.211337,"lon":-97.910025}]},{"tags":{"name":"Prolongación 2 Poniente"},"geometry":[{"lat":19.205772,"lon":-97.924222},{"lat":19.205785,"lon":-97.923146},{"lat":19.205791,"lon":-97.922921},{"lat":19.205782,"lon":-97.922425},{"lat":19.205818,"lon":-97.921336},{"lat":19.205796,"lon":-97.920921},{"lat":19.2058,"lon":-97.920241},{"lat":19.205806,"lon":-97.919776},{"lat":19.205796,"lon":-97.919494},{"lat":19.205792,"lon":-97.919346},{"lat":19.205792,"lon":-97.918947},{"lat":19.205791,"lon":-97.918497},{"lat":19.205788,"lon":-97.918151}]},{"tags":{"name":""},"geometry":[{"lat":19.200981,"lon":-97.919891},{"lat":19.201129,"lon":-97.919699},{"lat":19.201256,"lon":-97.919438},{"lat":19.202264,"lon":-97.918423},{"lat":19.202641,"lon":-97.917833},{"lat":19.202777,"lon":-97.917453},{"lat":19.202682,"lon":-97.916514},{"lat":19.202759,"lon":-97.916307}]},{"tags":{"name":"Calle 5 Poniente"},"geometry":[{"lat":19.202105,"lon":-97.914006},{"lat":19.202123,"lon":-97.913922},{"lat":19.202054,"lon":-97.913544},{"lat":19.202,"lon":-97.912888},{"lat":19.20195,"lon":-97.912224},{"lat":19.201921,"lon":-97.911842},{"lat":19.20193,"lon":-97.911658},{"lat":19.201947,"lon":-97.911479},{"lat":19.201956,"lon":-97.911242},{"lat":19.201931,"lon":-97.911116},{"lat":19.201843,"lon":-97.91095}]},{"tags":{"name":"Calle 3 Sur"},"geometry":[{"lat":19.203757,"lon":-97.909731},{"lat":19.205001,"lon":-97.909511}]},{"tags":{"name":"3 Poniente"},"geometry":[{"lat":19.202551,"lon":-97.909603},{"lat":19.202501,"lon":-97.909471}]},{"tags":{"name":"Calle 3 Poniente"},"geometry":[{"lat":19.202501,"lon":-97.909471},{"lat":19.202385,"lon":-97.909102}]},{"tags":{"name":"Calle 3 Sur"},"geometry":[{"lat":19.20222,"lon":-97.910036},{"lat":19.202321,"lon":-97.910006}]},{"tags":{"name":""},"geometry":[{"lat":19.1993,"lon":-97.904203999999993},{"lat":19.199288,"lon":-97.904998},{"lat":19.199313,"lon":-97.905867},{"lat":19.19936,"lon":-97.906769}]},{"tags":{"name":""},"geometry":[{"lat":19.195769,"lon":-97.898194},{"lat":19.196197,"lon":-97.897799},{"lat":19.196258,"lon":-97.89766},{"lat":19.196415,"lon":-97.897118},{"lat":19.19644,"lon":-97.896552},{"lat":19.196499,"lon":-97.89641},{"lat":19.196754,"lon":-97.896193},{"lat":19.197512,"lon":-97.895899},{"lat":19.197806,"lon":-97.895729},{"lat":19.197854,"lon":-97.894996},{"lat":19.197742,"lon":-97.894739},{"lat":19.197492,"lon":-97.893669},{"lat":19.197551,"lon":-97.893408}]},{"tags":{"name":""},"geometry":[{"lat":19.201901,"lon":-97.901465},{"lat":19.201504,"lon":-97.897641},{"lat":19.201154,"lon":-97.893862}]},{"tags":{"name":"Calle 5 Oriente"},"geometry":[{"lat":19.200074,"lon":-97.901372},{"lat":19.199789,"lon":-97.898871},{"lat":19.199807,"lon":-97.898735},{"lat":19.199849,"lon":-97.898642}]},{"tags":{"name":""},"geometry":[{"lat":19.203398,"lon":-97.931835},{"lat":19.203345,"lon":-97.931249},{"lat":19.20333,"lon":-97.931142},{"lat":19.203335,"lon":-97.930922},{"lat":19.203266,"lon":-97.930724},{"lat":19.203198,"lon":-97.930444},{"lat":19.203183,"lon":-97.930278},{"lat":19.20328,"lon":-97.930144},{"lat":19.203285,"lon":-97.929988},{"lat":19.203204,"lon":-97.929795},{"lat":19.203236,"lon":-97.929544},{"lat":19.203168,"lon":-97.929135},{"lat":19.203168,"lon":-97.92883},{"lat":19.203163,"lon":-97.928497},{"lat":19.203041,"lon":-97.928164},{"lat":19.20294,"lon":-97.9278},{"lat":19.202866,"lon":-97.927602},{"lat":19.202788,"lon":-97.927328},{"lat":19.202773,"lon":-97.92699},{"lat":19.202824,"lon":-97.926732},{"lat":19.20293,"lon":-97.92634},{"lat":19.202986,"lon":-97.925944},{"lat":19.203001,"lon":-97.925584},{"lat":19.203077,"lon":-97.925117},{"lat":19.20321,"lon":-97.924823},{"lat":19.203335,"lon":-97.924522},{"lat":19.203433,"lon":-97.92441},{"lat":19.203553,"lon":-97.924329},{"lat":19.203584,"lon":-97.924211},{"lat":19.20353,"lon":-97.924099},{"lat":19.203513,"lon":-97.923921},{"lat":19.203578,"lon":-97.923626},{"lat":19.20368,"lon":-97.923299},{"lat":19.203849,"lon":-97.923058},{"lat":19.203796,"lon":-97.922907}]},{"tags":{"name":""},"geometry":[{"lat":19.199457,"lon":-97.916317},{"lat":19.199044,"lon":-97.916325},{"lat":19.198485,"lon":-97.916344},{"lat":19.198029,"lon":-97.916403},{"lat":19.19769,"lon":-97.916425},{"lat":19.197357,"lon":-97.916437},{"lat":19.197093,"lon":-97.916446},{"lat":19.196792,"lon":-97.916421}]},{"tags":{"name":""},"geometry":[{"lat":19.199581,"lon":-97.916319},{"lat":19.199457,"lon":-97.916317}]},{"tags":{"name":""},"geometry":[{"lat":19.192908,"lon":-97.909036},{"lat":19.192998,"lon":-97.909069}]},{"tags":{"name":""},"geometry":[{"lat":19.179001,"lon":-97.907998},{"lat":19.179066,"lon":-97.907933},{"lat":19.17921,"lon":-97.907917},{"lat":19.179597,"lon":-97.907956},{"lat":19.180762,"lon":-97.908048},{"lat":19.18196,"lon":-97.908111},{"lat":19.183192,"lon":-97.908225},{"lat":19.18721,"lon":-97.908544},{"lat":19.192456,"lon":-97.908922},{"lat":19.192728,"lon":-97.908977},{"lat":19.192908,"lon":-97.909036}]},{"tags":{"name":"Calle 3 Sur"},"geometry":[{"lat":19.192998,"lon":-97.909069},{"lat":19.193392,"lon":-97.909189},{"lat":19.194789,"lon":-97.909247},{"lat":19.195857,"lon":-97.909256},{"lat":19.196636,"lon":-97.90937},{"lat":19.197632,"lon":-97.909226}]},{"tags":{"name":""},"geometry":[{"lat":19.199299,"lon":-97.909},{"lat":19.19931,"lon":-97.908837},{"lat":19.199239,"lon":-97.90815},{"lat":19.199226,"lon":-97.907793},{"lat":19.199278,"lon":-97.907615},{"lat":19.199418,"lon":-97.907509},{"lat":19.199457,"lon":-97.907355},{"lat":19.19936,"lon":-97.906769}]},{"tags":{"name":""},"geometry":[{"lat":19.196592,"lon":-97.885316},{"lat":19.196754,"lon":-97.885998},{"lat":19.196128,"lon":-97.886862},{"lat":19.195999,"lon":-97.887184},{"lat":19.195259,"lon":-97.889794},{"lat":19.19514,"lon":-97.889944},{"lat":19.19473,"lon":-97.890139},{"lat":19.194145,"lon":-97.89073},{"lat":19.193868,"lon":-97.891162},{"lat":19.19357,"lon":-97.891805},{"lat":19.19354,"lon":-97.891987},{"lat":19.19373,"lon":-97.892574},{"lat":19.1937,"lon":-97.892781},{"lat":19.193575,"lon":-97.892926},{"lat":19.192985,"lon":-97.893248},{"lat":19.192219,"lon":-97.893712}]},{"tags":{"name":""},"geometry":[{"lat":19.197551,"lon":-97.893408},{"lat":19.197406,"lon":-97.893506},{"lat":19.197398,"lon":-97.893614},{"lat":19.197392,"lon":-97.893787},{"lat":19.197366,"lon":-97.893909},{"lat":19.197279,"lon":-97.89404},{"lat":19.196899,"lon":-97.894284},{"lat":19.196764,"lon":-97.894423},{"lat":19.196612,"lon":-97.894753},{"lat":19.196522,"lon":-97.894876},{"lat":19.196239,"lon":-97.894963},{"lat":19.196072,"lon":-97.894976},{"lat":19.195418,"lon":-97.894721},{"lat":19.19498,"lon":-97.894529},{"lat":19.194457,"lon":-97.894406},{"lat":19.192219,"lon":-97.893712}]},{"tags":{"name":""},"geometry":[{"lat":19.189419,"lon":-97.890686},{"lat":19.189567,"lon":-97.890709}]},{"tags":{"name":""},"geometry":[{"lat":19.189567,"lon":-97.890709},{"lat":19.189668,"lon":-97.890796},{"lat":19.189802,"lon":-97.891224},{"lat":19.19109,"lon":-97.894276}]},{"tags":{"name":""},"geometry":[{"lat":19.192219,"lon":-97.893712},{"lat":19.19109,"lon":-97.894276},{"lat":19.187581,"lon":-97.896114},{"lat":19.187216,"lon":-97.896248},{"lat":19.186191,"lon":-97.896434},{"lat":19.184941,"lon":-97.89658},{"lat":19.184725,"lon":-97.896641},{"lat":19.184106,"lon":-97.896859},{"lat":19.183644,"lon":-97.896988},{"lat":19.183422,"lon":-97.897072},{"lat":19.183303,"lon":-97.897068}]},{"tags":{"name":""},"geometry":[{"lat":19.188103,"lon":-97.921098},{"lat":19.188148,"lon":-97.92083},{"lat":19.188316,"lon":-97.920663},{"lat":19.188499,"lon":-97.920593},{"lat":19.190832,"lon":-97.919917},{"lat":19.191022,"lon":-97.91982},{"lat":19.191111,"lon":-97.919744}]},{"tags":{"name":""},"geometry":[{"lat":19.192768,"lon":-97.88622},{"lat":19.192403,"lon":-97.887529},{"lat":19.192332,"lon":-97.888055},{"lat":19.192129,"lon":-97.888344},{"lat":19.191825,"lon":-97.888581},{"lat":19.191764,"lon":-97.888774},{"lat":19.191785,"lon":-97.889085},{"lat":19.191866,"lon":-97.889417},{"lat":19.191876,"lon":-97.890619},{"lat":19.191937,"lon":-97.890887},{"lat":19.192985,"lon":-97.893248}]},{"tags":{"name":""},"geometry":[{"lat":19.199278,"lon":-97.907615},{"lat":19.199081,"lon":-97.907611},{"lat":19.197351,"lon":-97.90782}]},{"tags":{"name":"Calle 3 Sur"},"geometry":[{"lat":19.199299,"lon":-97.909},{"lat":19.199324,"lon":-97.909128},{"lat":19.199369,"lon":-97.909332},{"lat":19.199422,"lon":-97.909545},{"lat":19.199522,"lon":-97.909761},{"lat":19.199621,"lon":-97.909976},{"lat":19.199724,"lon":-97.910155},{"lat":19.199932,"lon":-97.910318},{"lat":19.200062,"lon":-97.910374},{"lat":19.200182,"lon":-97.910406}]},{"tags":{"name":""},"geometry":[{"lat":19.196523,"lon":-97.900759},{"lat":19.196541,"lon":-97.90129},{"lat":19.196606,"lon":-97.901988},{"lat":19.196657,"lon":-97.902693},{"lat":19.196789,"lon":-97.904089},{"lat":19.19687,"lon":-97.904813},{"lat":19.196882,"lon":-97.9053},{"lat":19.196934,"lon":-97.905532},{"lat":19.196953,"lon":-97.905938},{"lat":19.19706,"lon":-97.90636},{"lat":19.197351,"lon":-97.90782},{"lat":19.197632,"lon":-97.909226}]},{"tags":{"name":""},"geometry":[{"lat":19.195511,"lon":-97.920472},{"lat":19.195336,"lon":-97.920597},{"lat":19.195226,"lon":-97.920629},{"lat":19.194992,"lon":-97.920618},{"lat":19.194591,"lon":-97.920727}]},{"tags":{"name":""},"geometry":[{"lat":19.195616,"lon":-97.920621},{"lat":19.195511,"lon":-97.920472},{"lat":19.195297,"lon":-97.920142},{"lat":19.195151,"lon":-97.919806},{"lat":19.195113,"lon":-97.919464},{"lat":19.195174,"lon":-97.919228},{"lat":19.195247,"lon":-97.918965},{"lat":19.195264,"lon":-97.918667},{"lat":19.195477,"lon":-97.917762},{"lat":19.195521,"lon":-97.917528},{"lat":19.195529,"lon":-97.917361}]},{"tags":{"name":"Privada Morelos"},"geometry":[{"lat":19.196806,"lon":-97.915822},{"lat":19.196020999999998,"lon":-97.916253}]},{"tags":{"name":""},"geometry":[{"lat":19.194021,"lon":-97.918536},{"lat":19.194133,"lon":-97.919182}]},{"tags":{"name":"Calle Bugambilias"},"geometry":[{"lat":19.194116,"lon":-97.921301},{"lat":19.194021,"lon":-97.920067},{"lat":19.194035,"lon":-97.919506},{"lat":19.194009,"lon":-97.91939},{"lat":19.193939,"lon":-97.919265},{"lat":19.193687,"lon":-97.918859}]},{"tags":{"name":"Calle Reforma"},"geometry":[{"lat":19.198077,"lon":-97.921014},{"lat":19.198067,"lon":-97.920786},{"lat":19.198063,"lon":-97.920488},{"lat":19.198112,"lon":-97.920291},{"lat":19.198272,"lon":-97.919991},{"lat":19.198392,"lon":-97.918845},{"lat":19.198295,"lon":-97.917747},{"lat":19.198108,"lon":-97.916868},{"lat":19.198029,"lon":-97.916403},{"lat":19.197944,"lon":-97.915565}]},{"tags":{"name":"Carretera Federal Huamantla"},"geometry":[{"lat":19.175581,"lon":-97.90865},{"lat":19.175766,"lon":-97.90878},{"lat":19.176676,"lon":-97.909415},{"lat":19.178879,"lon":-97.911002},{"lat":19.18016,"lon":-97.911889},{"lat":19.180638,"lon":-97.912231},{"lat":19.18278,"lon":-97.913775},{"lat":19.183457,"lon":-97.91424},{"lat":19.184504,"lon":-97.915016},{"lat":19.187691,"lon":-97.917291},{"lat":19.190604,"lon":-97.919358},{"lat":19.191111,"lon":-97.919744}]},{"tags":{"name":"Carretera Huamantla-La Venta"},"geometry":[{"lat":19.191111,"lon":-97.919744},{"lat":19.191738,"lon":-97.92015},{"lat":19.192042,"lon":-97.92021},{"lat":19.192285,"lon":-97.920156},{"lat":19.192547,"lon":-97.919982},{"lat":19.193687,"lon":-97.918859},{"lat":19.194021,"lon":-97.918536},{"lat":19.19441,"lon":-97.918184},{"lat":19.194922,"lon":-97.91779},{"lat":19.195529,"lon":-97.917361},{"lat":19.196291,"lon":-97.916795},{"lat":19.196792,"lon":-97.916421},{"lat":19.197028,"lon":-97.916254},{"lat":19.197944,"lon":-97.915565},{"lat":19.198172,"lon":-97.915366},{"lat":19.198419,"lon":-97.915168},{"lat":19.198646,"lon":-97.914868},{"lat":19.198969,"lon":-97.914374},{"lat":19.199208,"lon":-97.914131},{"lat":19.199607,"lon":-97.913777},{"lat":19.199928,"lon":-97.91347}]},{"tags":{"name":""},"geometry":[{"lat":19.189675,"lon":-97.923685},{"lat":19.189539,"lon":-97.923413},{"lat":19.189386,"lon":-97.923141},{"lat":19.189121,"lon":-97.922744},{"lat":19.188507,"lon":-97.921829},{"lat":19.188243,"lon":-97.921405},{"lat":19.188168,"lon":-97.921286},{"lat":19.188103,"lon":-97.921098}]},{"tags":{"name":""},"geometry":[{"lat":19.190438,"lon":-97.923966},{"lat":19.189937,"lon":-97.924196}]},{"tags":{"name":"Calle Adolfo López Mateos"},"geometry":[{"lat":19.203796,"lon":-97.922907},{"lat":19.203822,"lon":-97.922752},{"lat":19.203879,"lon":-97.922429},{"lat":19.20389,"lon":-97.921636},{"lat":19.203936,"lon":-97.920705},{"lat":19.204011,"lon":-97.91947},{"lat":19.204032,"lon":-97.918552},{"lat":19.2041,"lon":-97.917184},{"lat":19.204259,"lon":-97.916123}]},{"tags":{"name":""},"geometry":[{"lat":19.203112,"lon":-97.913954},{"lat":19.202624,"lon":-97.913999},{"lat":19.202105,"lon":-97.914006}]},{"tags":{"name":""},"geometry":[{"lat":19.200981,"lon":-97.919891},{"lat":19.201002,"lon":-97.918788},{"lat":19.20097,"lon":-97.917208},{"lat":19.200967,"lon":-97.916285}]},{"tags":{"name":""},"geometry":[{"lat":19.198485,"lon":-97.916344},{"lat":19.198538,"lon":-97.915548}]},{"tags":{"name":"3 Poniente"},"geometry":[{"lat":19.203896,"lon":-97.916232},{"lat":19.203492,"lon":-97.916285},{"lat":19.203092,"lon":-97.916304}]},{"tags":{"name":"3 Poniente"},"geometry":[{"lat":19.204045,"lon":-97.91618},{"lat":19.203896,"lon":-97.916232}]},{"tags":{"name":"Calle 3 Poniente"},"geometry":[{"lat":19.203092,"lon":-97.916304},{"lat":19.203112,"lon":-97.913954},{"lat":19.203062,"lon":-97.911572},{"lat":19.202857,"lon":-97.910782},{"lat":19.202639,"lon":-97.909955},{"lat":19.202551,"lon":-97.909603}]},{"tags":{"name":""},"geometry":[{"lat":19.207051,"lon":-97.917235},{"lat":19.206767,"lon":-97.917233},{"lat":19.206382,"lon":-97.917202},{"lat":19.206236,"lon":-97.917157}]},{"tags":{"name":""},"geometry":[{"lat":19.2041,"lon":-97.917184},{"lat":19.204673,"lon":-97.917176}]},{"tags":{"name":""},"geometry":[{"lat":19.205148,"lon":-97.918648},{"lat":19.204032,"lon":-97.918552}]},{"tags":{"name":""},"geometry":[{"lat":19.205098,"lon":-97.919914},{"lat":19.205093,"lon":-97.919734},{"lat":19.205053,"lon":-97.919383},{"lat":19.205072,"lon":-97.919154},{"lat":19.205215,"lon":-97.918911},{"lat":19.205354,"lon":-97.918645},{"lat":19.205326,"lon":-97.918416},{"lat":19.20525,"lon":-97.918053},{"lat":19.20521,"lon":-97.917532},{"lat":19.205194,"lon":-97.916797},{"lat":19.205286,"lon":-97.916486},{"lat":19.205416,"lon":-97.91615}]},{"tags":{"name":"3 Poniente"},"geometry":[{"lat":19.209749,"lon":-97.91582},{"lat":19.209612,"lon":-97.915805},{"lat":19.209359,"lon":-97.915813},{"lat":19.209214,"lon":-97.91583},{"lat":19.2089,"lon":-97.915856},{"lat":19.20694,"lon":-97.915965}]},{"tags":{"name":""},"geometry":[{"lat":19.201896,"lon":-97.914096},{"lat":19.201723,"lon":-97.914078},{"lat":19.200939,"lon":-97.914121},{"lat":19.200607,"lon":-97.914115},{"lat":19.200255,"lon":-97.914155}]},{"tags":{"name":""},"geometry":[{"lat":19.201792,"lon":-97.910866},{"lat":19.201646,"lon":-97.910988},{"lat":19.201519,"lon":-97.911116},{"lat":19.201289,"lon":-97.911468},{"lat":19.200952,"lon":-97.911961},{"lat":19.200633,"lon":-97.912417},{"lat":19.200128,"lon":-97.913117},{"lat":19.199904,"lon":-97.913396},{"lat":19.199523,"lon":-97.913732},{"lat":19.19916,"lon":-97.914079},{"lat":19.198832,"lon":-97.914453},{"lat":19.198512,"lon":-97.914897},{"lat":19.198193,"lon":-97.915244},{"lat":19.197936,"lon":-97.915475},{"lat":19.196981,"lon":-97.916183}]},{"tags":{"name":"Calle 5 Sur"},"geometry":[{"lat":19.201843,"lon":-97.91095},{"lat":19.202047,"lon":-97.910874},{"lat":19.202306,"lon":-97.910824},{"lat":19.202857,"lon":-97.910782},{"lat":19.203662,"lon":-97.910651}]},{"tags":{"name":"Calle 9 Poniente"},"geometry":[{"lat":19.200182,"lon":-97.910406},{"lat":19.199566,"lon":-97.910526}]},{"tags":{"name":"Privada de la 7 Poniente"},"geometry":[{"lat":19.200444,"lon":-97.909006},{"lat":19.200666,"lon":-97.910336}]},{"tags":{"name":""},"geometry":[{"lat":19.201954,"lon":-97.916292},{"lat":19.201935,"lon":-97.91529},{"lat":19.201886,"lon":-97.914367},{"lat":19.201896,"lon":-97.914096},{"lat":19.201951,"lon":-97.914066},{"lat":19.202044,"lon":-97.91405},{"lat":19.202105,"lon":-97.914006}]},{"tags":{"name":"Calle 7 Sur"},"geometry":[{"lat":19.203996,"lon":-97.911554},{"lat":19.203062,"lon":-97.911572}]},{"tags":{"name":"Calle 7 Sur"},"geometry":[{"lat":19.204179,"lon":-97.911558},{"lat":19.203996,"lon":-97.911554}]},{"tags":{"name":"Calle 3 Sur"},"geometry":[{"lat":19.197632,"lon":-97.909226},{"lat":19.198377,"lon":-97.908947},{"lat":19.198761,"lon":-97.908917},{"lat":19.199118,"lon":-97.908938},{"lat":19.199299,"lon":-97.909}]},{"tags":{"name":""},"geometry":[{"lat":19.201154,"lon":-97.893862},{"lat":19.200997,"lon":-97.892558}]},{"tags":{"name":"Privada 8 Sur"},"geometry":[{"lat":19.199232,"lon":-97.902778},{"lat":19.199963,"lon":-97.902791}]},{"tags":{"name":"Calle Benito Juárez"},"geometry":[{"lat":19.204089,"lon":-97.9058},{"lat":19.204108,"lon":-97.905953}]},{"tags":{"name":"Calle Benito Juárez"},"geometry":[{"lat":19.203746,"lon":-97.901609},{"lat":19.203865,"lon":-97.902796},{"lat":19.203919,"lon":-97.903495},{"lat":19.203988,"lon":-97.904376},{"lat":19.204089,"lon":-97.9058}]},{"tags":{"name":"Calle 4 Sur"},"geometry":[{"lat":19.203828,"lon":-97.906168},{"lat":19.204131,"lon":-97.906142}]},{"tags":{"name":"Calle 4 Sur"},"geometry":[{"lat":19.203652,"lon":-97.906181},{"lat":19.203828,"lon":-97.906168}]},{"tags":{"name":"Calle 2 Sur"},"geometry":[{"lat":19.203642,"lon":-97.907372},{"lat":19.203499,"lon":-97.907398}]},{"tags":{"name":"Calle 2 Sur"},"geometry":[{"lat":19.204253,"lon":-97.907288},{"lat":19.204184,"lon":-97.907293},{"lat":19.203642,"lon":-97.907372}]},{"tags":{"name":"Calle Independencia"},"geometry":[{"lat":19.203435,"lon":-97.908743},{"lat":19.203239,"lon":-97.908803},{"lat":19.202366,"lon":-97.909037}]},{"tags":{"name":"Calle Independencia"},"geometry":[{"lat":19.203591,"lon":-97.908702},{"lat":19.203435,"lon":-97.908743}]},{"tags":{"name":"Calle 3 Sur"},"geometry":[{"lat":19.203581,"lon":-97.909778},{"lat":19.203757,"lon":-97.909731}]},{"tags":{"name":"Calle 3 Sur"},"geometry":[{"lat":19.202321,"lon":-97.910006},{"lat":19.202639,"lon":-97.909955},{"lat":19.203581,"lon":-97.909778}]},{"tags":{"name":"Calle 5 de Mayo"},"geometry":[{"lat":19.205425,"lon":-97.90802},{"lat":19.205117,"lon":-97.908098},{"lat":19.205045,"lon":-97.908114},{"lat":19.20498,"lon":-97.908131},{"lat":19.204588,"lon":-97.908238}]},{"tags":{"name":""},"geometry":[{"lat":19.202922,"lon":-97.893116},{"lat":19.203634,"lon":-97.900235},{"lat":19.203746,"lon":-97.901609}]},{"tags":{"name":""},"geometry":[{"lat":19.204044,"lon":-97.885888},{"lat":19.204148,"lon":-97.88751},{"lat":19.204217,"lon":-97.887918},{"lat":19.204664,"lon":-97.892369},{"lat":19.204845,"lon":-97.894066},{"lat":19.204977,"lon":-97.895747},{"lat":19.205084,"lon":-97.896651},{"lat":19.205079,"lon":-97.896902},{"lat":19.20388,"lon":-97.901609}]},{"tags":{"name":"Calle 6 Norte"},"geometry":[{"lat":19.205899,"lon":-97.904143},{"lat":19.207,"lon":-97.904019},{"lat":19.209132,"lon":-97.904084}]},{"tags":{"name":"Calle 6 Norte"},"geometry":[{"lat":19.205719,"lon":-97.904154},{"lat":19.205899,"lon":-97.904143}]},{"tags":{"name":"Calle 10 Norte"},"geometry":[{"lat":19.206192,"lon":-97.901746},{"lat":19.206028,"lon":-97.901737}]},{"tags":{"name":"Calle 10 Norte"},"geometry":[{"lat":19.206028,"lon":-97.901737},{"lat":19.205243,"lon":-97.901702},{"lat":19.204604,"lon":-97.90167},{"lat":19.20388,"lon":-97.901609},{"lat":19.203746,"lon":-97.901609}]},{"tags":{"name":"Calle 8 Norte"},"geometry":[{"lat":19.2059,"lon":-97.902845},{"lat":19.205169,"lon":-97.902828},{"lat":19.203865,"lon":-97.902796}]},{"tags":{"name":"Calle 8 Norte"},"geometry":[{"lat":19.206042,"lon":-97.902852},{"lat":19.2059,"lon":-97.902845}]},{"tags":{"name":"Calle 4 Oriente"},"geometry":[{"lat":19.205572,"lon":-97.904806},{"lat":19.205644,"lon":-97.905}]},{"tags":{"name":"Calle 4 Oriente"},"geometry":[{"lat":19.205376,"lon":-97.90421},{"lat":19.205572,"lon":-97.904806}]},{"tags":{"name":"Calle 2 Oriente"},"geometry":[{"lat":19.205002,"lon":-97.905261},{"lat":19.205056,"lon":-97.905403}]},{"tags":{"name":"Calle 2 Oriente"},"geometry":[{"lat":19.205243,"lon":-97.901702},{"lat":19.205232,"lon":-97.902198},{"lat":19.205169,"lon":-97.902828},{"lat":19.205096,"lon":-97.903563},{"lat":19.205031,"lon":-97.90425},{"lat":19.204962,"lon":-97.905048},{"lat":19.205002,"lon":-97.905261}]},{"tags":{"name":""},"geometry":[{"lat":19.205096,"lon":-97.903563},{"lat":19.203919,"lon":-97.903495}]},{"tags":{"name":""},"geometry":[{"lat":19.203426,"lon":-97.903984},{"lat":19.203318,"lon":-97.904089},{"lat":19.20328,"lon":-97.904175},{"lat":19.20325,"lon":-97.90445}]},{"tags":{"name":""},"geometry":[{"lat":19.19822,"lon":-97.895089},{"lat":19.198385,"lon":-97.895274},{"lat":19.199164,"lon":-97.897027},{"lat":19.199849,"lon":-97.898642}]},{"tags":{"name":""},"geometry":[{"lat":19.20814,"lon":-97.923864},{"lat":19.208352,"lon":-97.924546},{"lat":19.208568,"lon":-97.925135},{"lat":19.20878,"lon":-97.925631},{"lat":19.208901,"lon":-97.925839},{"lat":19.208822,"lon":-97.925875},{"lat":19.208681,"lon":-97.925928},{"lat":19.208615,"lon":-97.926018},{"lat":19.208561,"lon":-97.92636},{"lat":19.208595,"lon":-97.926715},{"lat":19.208716,"lon":-97.92699},{"lat":19.20884,"lon":-97.927274}]},{"tags":{"name":""},"geometry":[{"lat":19.207202,"lon":-97.9214},{"lat":19.207507,"lon":-97.921298},{"lat":19.207686,"lon":-97.921302},{"lat":19.207814,"lon":-97.921349},{"lat":19.208001,"lon":-97.921498},{"lat":19.208145,"lon":-97.921513},{"lat":19.20841,"lon":-97.92155},{"lat":19.208572,"lon":-97.92167},{"lat":19.20866,"lon":-97.921919},{"lat":19.208746,"lon":-97.922339}]},{"tags":{"name":""},"geometry":[{"lat":19.207066,"lon":-97.917734},{"lat":19.207526,"lon":-97.91779},{"lat":19.207706,"lon":-97.917862},{"lat":19.207869,"lon":-97.918004},{"lat":19.208083,"lon":-97.918086},{"lat":19.208632,"lon":-97.918141}]},{"tags":{"name":""},"geometry":[{"lat":19.208715,"lon":-97.916685},{"lat":19.2089,"lon":-97.915856}]},{"tags":{"name":""},"geometry":[{"lat":19.2088,"lon":-97.917704},{"lat":19.209214,"lon":-97.91583}]},{"tags":{"name":""},"geometry":[{"lat":19.209749,"lon":-97.91582},{"lat":19.209837,"lon":-97.91526},{"lat":19.209813,"lon":-97.915178},{"lat":19.209754,"lon":-97.915127}]},{"tags":{"name":""},"geometry":[{"lat":19.211679,"lon":-97.915177},{"lat":19.209837,"lon":-97.91526},{"lat":19.209731,"lon":-97.915263}]},{"tags":{"name":""},"geometry":[{"lat":19.209754,"lon":-97.915127},{"lat":19.209731,"lon":-97.915263},{"lat":19.209612,"lon":-97.915805}]},{"tags":{"name":"Calle 16 Poniente"},"geometry":[{"lat":19.211508,"lon":-97.909994},{"lat":19.211461,"lon":-97.910135},{"lat":19.211441,"lon":-97.910225},{"lat":19.211443,"lon":-97.910349},{"lat":19.21146,"lon":-97.910461},{"lat":19.211501,"lon":-97.910675},{"lat":19.21169,"lon":-97.911331}]},{"tags":{"name":""},"geometry":[{"lat":19.210942,"lon":-97.91242},{"lat":19.211205,"lon":-97.912337},{"lat":19.211474,"lon":-97.912279},{"lat":19.211708,"lon":-97.912264}]},{"tags":{"name":""},"geometry":[{"lat":19.211813,"lon":-97.913109},{"lat":19.211233,"lon":-97.913308}]},{"tags":{"name":"Calle 13 Norte"},"geometry":[{"lat":19.209076,"lon":-97.91284},{"lat":19.209879,"lon":-97.912138},{"lat":19.210582,"lon":-97.911559}]},{"tags":{"name":""},"geometry":[{"lat":19.209169,"lon":-97.913654},{"lat":19.209037,"lon":-97.913729},{"lat":19.208946,"lon":-97.913836},{"lat":19.20885,"lon":-97.913997},{"lat":19.208692,"lon":-97.914534},{"lat":19.208627,"lon":-97.914727},{"lat":19.208586,"lon":-97.914791},{"lat":19.208494,"lon":-97.914866},{"lat":19.207502,"lon":-97.914939}]},{"tags":{"name":""},"geometry":[{"lat":19.209093,"lon":-97.912419},{"lat":19.208526,"lon":-97.912388}]},{"tags":{"name":""},"geometry":[{"lat":19.214376,"lon":-97.910618},{"lat":19.213298,"lon":-97.910634}]},{"tags":{"name":""},"geometry":[{"lat":19.214032,"lon":-97.910298},{"lat":19.213215,"lon":-97.910328}]},{"tags":{"name":""},"geometry":[{"lat":19.215499,"lon":-97.916184},{"lat":19.215452,"lon":-97.915985},{"lat":19.215425,"lon":-97.915933},{"lat":19.215037,"lon":-97.915456},{"lat":19.214789,"lon":-97.915114},{"lat":19.214528,"lon":-97.914748},{"lat":19.214396,"lon":-97.914382},{"lat":19.21428,"lon":-97.913942}]},{"tags":{"name":""},"geometry":[{"lat":19.212593,"lon":-97.909923},{"lat":19.212648,"lon":-97.91006},{"lat":19.212931,"lon":-97.911305},{"lat":19.212973,"lon":-97.911536},{"lat":19.213112,"lon":-97.912307}]},{"tags":{"name":""},"geometry":[{"lat":19.214162,"lon":-97.911325},{"lat":19.214054,"lon":-97.911328},{"lat":19.213528,"lon":-97.911342}]},{"tags":{"name":""},"geometry":[{"lat":19.214323,"lon":-97.911412},{"lat":19.214272,"lon":-97.911419},{"lat":19.214209,"lon":-97.911438},{"lat":19.214148,"lon":-97.911448},{"lat":19.213562,"lon":-97.911454}]},{"tags":{"name":""},"geometry":[{"lat":19.209408,"lon":-97.890578},{"lat":19.209457,"lon":-97.890957},{"lat":19.2095,"lon":-97.891952},{"lat":19.209668,"lon":-97.894007},{"lat":19.210336,"lon":-97.898524}]},{"tags":{"name":"Calle 18 Poniente"},"geometry":[{"lat":19.210336,"lon":-97.898524},{"lat":19.210478,"lon":-97.899476},{"lat":19.210567,"lon":-97.900141},{"lat":19.210612,"lon":-97.900923},{"lat":19.21064,"lon":-97.901203},{"lat":19.210704,"lon":-97.901506},{"lat":19.210792,"lon":-97.901927},{"lat":19.211205,"lon":-97.903282},{"lat":19.211553,"lon":-97.90442},{"lat":19.212459,"lon":-97.907575},{"lat":19.212864,"lon":-97.909014},{"lat":19.212965,"lon":-97.909464},{"lat":19.213108,"lon":-97.909885}]},{"tags":{"name":""},"geometry":[{"lat":19.21116,"lon":-97.920712},{"lat":19.211395,"lon":-97.92103},{"lat":19.211438,"lon":-97.92143},{"lat":19.211453,"lon":-97.921865},{"lat":19.211413,"lon":-97.922038},{"lat":19.211305,"lon":-97.922092},{"lat":19.210995,"lon":-97.922081},{"lat":19.210888,"lon":-97.922131},{"lat":19.21082,"lon":-97.922288},{"lat":19.210856,"lon":-97.922513},{"lat":19.211078,"lon":-97.923074},{"lat":19.211256,"lon":-97.923673},{"lat":19.211367,"lon":-97.924147},{"lat":19.211387,"lon":-97.92463},{"lat":19.211566,"lon":-97.925052},{"lat":19.211672,"lon":-97.92538},{"lat":19.211734,"lon":-97.925654}]},{"tags":{"name":""},"geometry":[{"lat":19.212793,"lon":-97.909901},{"lat":19.213091,"lon":-97.911251},{"lat":19.213153,"lon":-97.911505},{"lat":19.213282,"lon":-97.912281},{"lat":19.213429,"lon":-97.912804},{"lat":19.213719,"lon":-97.913486},{"lat":19.214103,"lon":-97.914146},{"lat":19.214493,"lon":-97.914964},{"lat":19.214532,"lon":-97.915038},{"lat":19.214982,"lon":-97.915581},{"lat":19.215499,"lon":-97.916184},{"lat":19.215865,"lon":-97.916552},{"lat":19.216356,"lon":-97.917213},{"lat":19.216381,"lon":-97.917246},{"lat":19.216525,"lon":-97.917359},{"lat":19.216608,"lon":-97.917496},{"lat":19.216668,"lon":-97.917664},{"lat":19.216805,"lon":-97.918222},{"lat":19.216863,"lon":-97.91853},{"lat":19.216922,"lon":-97.918729}]},{"tags":{"name":""},"geometry":[{"lat":19.215003,"lon":-97.911035},{"lat":19.215134,"lon":-97.912262}]},{"tags":{"name":""},"geometry":[{"lat":19.211428,"lon":-97.906134},{"lat":19.211576,"lon":-97.906412},{"lat":19.21168,"lon":-97.906684},{"lat":19.211712,"lon":-97.906887},{"lat":19.211824,"lon":-97.907286},{"lat":19.211956,"lon":-97.907601},{"lat":19.212057,"lon":-97.907992},{"lat":19.21204,"lon":-97.908146}]},{"tags":{"name":""},"geometry":[{"lat":19.211553,"lon":-97.90442},{"lat":19.211643,"lon":-97.904333},{"lat":19.211765,"lon":-97.904137},{"lat":19.211896,"lon":-97.903738},{"lat":19.212074,"lon":-97.903464},{"lat":19.212469,"lon":-97.903207},{"lat":19.212664,"lon":-97.902909},{"lat":19.21295,"lon":-97.902507},{"lat":19.21333,"lon":-97.901981},{"lat":19.213439,"lon":-97.901801},{"lat":19.213535,"lon":-97.901595},{"lat":19.213839,"lon":-97.900951},{"lat":19.214444,"lon":-97.899755},{"lat":19.214708,"lon":-97.899363},{"lat":19.214875,"lon":-97.899132},{"lat":19.215432,"lon":-97.898424},{"lat":19.215995,"lon":-97.897856},{"lat":19.216157,"lon":-97.897722},{"lat":19.216263,"lon":-97.897662},{"lat":19.216694,"lon":-97.897614},{"lat":19.217139,"lon":-97.897534},{"lat":19.217519,"lon":-97.897426},{"lat":19.217651,"lon":-97.897335},{"lat":19.217838,"lon":-97.897062},{"lat":19.218365,"lon":-97.89659},{"lat":19.218608,"lon":-97.896439},{"lat":19.218846,"lon":-97.896364},{"lat":19.218928,"lon":-97.896343},{"lat":19.218978,"lon":-97.896252},{"lat":19.219019,"lon":-97.894192},{"lat":19.219105,"lon":-97.893864},{"lat":19.21913,"lon":-97.893339},{"lat":19.21915,"lon":-97.891837},{"lat":19.219095,"lon":-97.891424},{"lat":19.219135,"lon":-97.891027},{"lat":19.219084,"lon":-97.89055}]},{"tags":{"name":""},"geometry":[{"lat":19.212965,"lon":-97.909464},{"lat":19.212902,"lon":-97.909431},{"lat":19.212758,"lon":-97.909091},{"lat":19.212566,"lon":-97.908575},{"lat":19.212303,"lon":-97.907968},{"lat":19.212137,"lon":-97.907603},{"lat":19.211861,"lon":-97.906761},{"lat":19.211572,"lon":-97.906026},{"lat":19.21103,"lon":-97.904465},{"lat":19.210964,"lon":-97.904052},{"lat":19.210888,"lon":-97.903574},{"lat":19.21078,"lon":-97.902847},{"lat":19.210681,"lon":-97.902238},{"lat":19.210612,"lon":-97.901841},{"lat":19.210572,"lon":-97.901528},{"lat":19.210549,"lon":-97.901017}]},{"tags":{"name":"Calle 3 Norte"},"geometry":[{"lat":19.213896,"lon":-97.90677},{"lat":19.213509,"lon":-97.90687},{"lat":19.212981,"lon":-97.907072},{"lat":19.212763,"lon":-97.907194},{"lat":19.21261,"lon":-97.907378},{"lat":19.212459,"lon":-97.907575}]},{"tags":{"name":""},"geometry":[{"lat":19.212459,"lon":-97.907575},{"lat":19.212137,"lon":-97.907603},{"lat":19.211956,"lon":-97.907601}]},{"tags":{"name":""},"geometry":[{"lat":19.211219,"lon":-97.907651},{"lat":19.211205,"lon":-97.907517},{"lat":19.211124,"lon":-97.907178},{"lat":19.211084,"lon":-97.90697},{"lat":19.211033,"lon":-97.906739},{"lat":19.21102,"lon":-97.906478}]},{"tags":{"name":""},"geometry":[{"lat":19.208886,"lon":-97.890642},{"lat":19.209046,"lon":-97.891706},{"lat":19.209167,"lon":-97.892439},{"lat":19.209193,"lon":-97.892784},{"lat":19.209317,"lon":-97.893461},{"lat":19.209332,"lon":-97.89382},{"lat":19.209438,"lon":-97.894279},{"lat":19.209519,"lon":-97.894821},{"lat":19.209728,"lon":-97.896151},{"lat":19.209866,"lon":-97.897181},{"lat":19.21006,"lon":-97.897886},{"lat":19.21008,"lon":-97.898301},{"lat":19.210144,"lon":-97.898725},{"lat":19.210208,"lon":-97.899154},{"lat":19.210234,"lon":-97.899643},{"lat":19.210262,"lon":-97.899898},{"lat":19.210352,"lon":-97.900227},{"lat":19.210414,"lon":-97.900642},{"lat":19.210428,"lon":-97.901355},{"lat":19.21047,"lon":-97.901715},{"lat":19.210529,"lon":-97.901993},{"lat":19.210544,"lon":-97.902183},{"lat":19.210519,"lon":-97.90241},{"lat":19.210526,"lon":-97.90259},{"lat":19.210605,"lon":-97.902934},{"lat":19.210738,"lon":-97.904117},{"lat":19.210782,"lon":-97.904312},{"lat":19.210894,"lon":-97.904762},{"lat":19.211215,"lon":-97.905508},{"lat":19.211428,"lon":-97.906134},{"lat":19.211525,"lon":-97.906617},{"lat":19.21155,"lon":-97.906891},{"lat":19.211642,"lon":-97.907217},{"lat":19.211781,"lon":-97.907624},{"lat":19.21204,"lon":-97.908146},{"lat":19.212374,"lon":-97.908934},{"lat":19.212454,"lon":-97.909146},{"lat":19.212468,"lon":-97.909397},{"lat":19.21252,"lon":-97.909714},{"lat":19.212593,"lon":-97.909923}]},{"tags":{"name":""},"geometry":[{"lat":19.211323,"lon":-97.908332},{"lat":19.211371,"lon":-97.908417},{"lat":19.211409,"lon":-97.908767},{"lat":19.211413,"lon":-97.90911},{"lat":19.211358,"lon":-97.909679},{"lat":19.211337,"lon":-97.910025}]},{"tags":{"name":"Privada 4 Norte"},"geometry":[{"lat":19.210241,"lon":-97.905386},{"lat":19.210579,"lon":-97.905344},{"lat":19.210638,"lon":-97.905285}]},{"tags":{"name":"Privada 2 Norte"},"geometry":[{"lat":19.210334,"lon":-97.906551},{"lat":19.210773,"lon":-97.90649},{"lat":19.21102,"lon":-97.906478}]},{"tags":{"name":"Privada 5 de Mayo"},"geometry":[{"lat":19.211219,"lon":-97.907651},{"lat":19.210372,"lon":-97.907702}]},{"tags":{"name":""},"geometry":[{"lat":19.21473,"lon":-97.908883},{"lat":19.214646,"lon":-97.908574},{"lat":19.214628,"lon":-97.908553},{"lat":19.214603,"lon":-97.908545},{"lat":19.214444,"lon":-97.908538}]},{"tags":{"name":""},"geometry":[{"lat":19.213619,"lon":-97.909448},{"lat":19.212965,"lon":-97.909464}]},{"tags":{"name":""},"geometry":[{"lat":19.217859,"lon":-97.910977},{"lat":19.21796,"lon":-97.91091},{"lat":19.218006,"lon":-97.910898},{"lat":19.218399,"lon":-97.910852},{"lat":19.218469,"lon":-97.910801},{"lat":19.218502,"lon":-97.910695},{"lat":19.218527,"lon":-97.909506},{"lat":19.2185,"lon":-97.908656},{"lat":19.21851,"lon":-97.90779},{"lat":19.218488,"lon":-97.907133},{"lat":19.21844,"lon":-97.905583},{"lat":19.218449,"lon":-97.904931}]},{"tags":{"name":"Calle 3 Norte"},"geometry":[{"lat":19.218449,"lon":-97.904931},{"lat":19.217669,"lon":-97.905307},{"lat":19.217521,"lon":-97.905391},{"lat":19.216661,"lon":-97.905998},{"lat":19.216376,"lon":-97.906164},{"lat":19.216167,"lon":-97.90625},{"lat":19.213896,"lon":-97.90677}]},{"tags":{"name":""},"geometry":[{"lat":19.213896,"lon":-97.90677},{"lat":19.214014,"lon":-97.906181},{"lat":19.214037,"lon":-97.90583},{"lat":19.214027,"lon":-97.905564},{"lat":19.214054,"lon":-97.905449},{"lat":19.214105,"lon":-97.905033},{"lat":19.214151,"lon":-97.904558},{"lat":19.214222,"lon":-97.90395},{"lat":19.214265,"lon":-97.903684},{"lat":19.214282,"lon":-97.903577},{"lat":19.21427,"lon":-97.90336},{"lat":19.214303,"lon":-97.901994},{"lat":19.214358,"lon":-97.901852},{"lat":19.214364,"lon":-97.901782},{"lat":19.21431,"lon":-97.901729},{"lat":19.214224,"lon":-97.901726},{"lat":19.214042,"lon":-97.901646},{"lat":19.21394,"lon":-97.901627},{"lat":19.213786,"lon":-97.90168},{"lat":19.213606,"lon":-97.901713}]},{"tags":{"name":""},"geometry":[{"lat":19.213606,"lon":-97.901713},{"lat":19.213439,"lon":-97.901801}]},{"tags":{"name":""},"geometry":[{"lat":19.213535,"lon":-97.901595},{"lat":19.213606,"lon":-97.901713}]},{"tags":{"name":""},"geometry":[{"lat":19.210738,"lon":-97.904117},{"lat":19.210686,"lon":-97.904293},{"lat":19.210697,"lon":-97.904504},{"lat":19.210759,"lon":-97.905001}]},{"tags":{"name":""},"geometry":[{"lat":19.210428,"lon":-97.901355},{"lat":19.210549,"lon":-97.901017},{"lat":19.210612,"lon":-97.900923},{"lat":19.210958,"lon":-97.900466},{"lat":19.211396,"lon":-97.899934},{"lat":19.21188,"lon":-97.899335},{"lat":19.212119,"lon":-97.899041},{"lat":19.212246,"lon":-97.898875},{"lat":19.212458,"lon":-97.89868},{"lat":19.21257,"lon":-97.898537}]},{"tags":{"name":"Privada 10 Norte"},"geometry":[{"lat":19.209989,"lon":-97.901938},{"lat":19.210263,"lon":-97.901933},{"lat":19.210317,"lon":-97.901886},{"lat":19.210428,"lon":-97.901355}]},{"tags":{"name":"Privada 8 Norte"},"geometry":[{"lat":19.210324,"lon":-97.902995},{"lat":19.210064,"lon":-97.903018}]},{"tags":{"name":""},"geometry":[{"lat":19.218066,"lon":-97.891688},{"lat":19.21805,"lon":-97.89131},{"lat":19.21804,"lon":-97.891261},{"lat":19.217994,"lon":-97.891104},{"lat":19.217993,"lon":-97.890887},{"lat":19.21799,"lon":-97.890854},{"lat":19.217864,"lon":-97.890258},{"lat":19.217858,"lon":-97.890217},{"lat":19.217805,"lon":-97.88959},{"lat":19.217786,"lon":-97.889141},{"lat":19.21745,"lon":-97.886179},{"lat":19.217393,"lon":-97.885676},{"lat":19.217367,"lon":-97.88454},{"lat":19.21734,"lon":-97.880719},{"lat":19.217375,"lon":-97.878553},{"lat":19.217371,"lon":-97.877963},{"lat":19.217271,"lon":-97.876637},{"lat":19.217166,"lon":-97.87592},{"lat":19.217094,"lon":-97.875348},{"lat":19.216954,"lon":-97.873909},{"lat":19.216896,"lon":-97.873352},{"lat":19.216844,"lon":-97.87205},{"lat":19.21681,"lon":-97.871528}]},{"tags":{"name":""},"geometry":[{"lat":19.209383,"lon":-97.890402},{"lat":19.209408,"lon":-97.890578}]},{"tags":{"name":""},"geometry":[{"lat":19.209202,"lon":-97.890573},{"lat":19.209322,"lon":-97.890492},{"lat":19.209383,"lon":-97.890402}]},{"tags":{"name":""},"geometry":[{"lat":19.210894,"lon":-97.904762},{"lat":19.21103,"lon":-97.904465},{"lat":19.211316,"lon":-97.904436},{"lat":19.211553,"lon":-97.90442}]},{"tags":{"name":""},"geometry":[{"lat":19.210638,"lon":-97.905285},{"lat":19.210676,"lon":-97.905237},{"lat":19.210726,"lon":-97.905079},{"lat":19.210759,"lon":-97.905001},{"lat":19.210894,"lon":-97.904762}]},{"tags":{"name":"Calle 7 Norte"},"geometry":[{"lat":19.213091,"lon":-97.911251},{"lat":19.212931,"lon":-97.911305},{"lat":19.212798,"lon":-97.911326},{"lat":19.21169,"lon":-97.911331},{"lat":19.210912,"lon":-97.911377},{"lat":19.210797,"lon":-97.9114},{"lat":19.210582,"lon":-97.911559}]},{"tags":{"name":""},"geometry":[{"lat":19.214967,"lon":-97.908591},{"lat":19.215085,"lon":-97.908611},{"lat":19.215122,"lon":-97.908613},{"lat":19.215161,"lon":-97.908601},{"lat":19.215368,"lon":-97.908328},{"lat":19.215377,"lon":-97.908295},{"lat":19.215375,"lon":-97.908257},{"lat":19.215344,"lon":-97.908126}]},{"tags":{"name":"Calle 4 Poniente"},"geometry":[{"lat":19.205117,"lon":-97.908098},{"lat":19.205265,"lon":-97.908422},{"lat":19.205682,"lon":-97.909376},{"lat":19.206149,"lon":-97.910398}]},{"tags":{"name":""},"geometry":[{"lat":19.199256,"lon":-97.893746},{"lat":19.19895,"lon":-97.894373},{"lat":19.198872,"lon":-97.894478},{"lat":19.198296,"lon":-97.89491},{"lat":19.19822,"lon":-97.894989},{"lat":19.19822,"lon":-97.895089}]},{"tags":{"name":""},"geometry":[{"lat":19.213719,"lon":-97.913486},{"lat":19.213421,"lon":-97.91492},{"lat":19.213304,"lon":-97.915444},{"lat":19.213251,"lon":-97.915751},{"lat":19.213107,"lon":-97.916213},{"lat":19.212777,"lon":-97.917353},{"lat":19.212626,"lon":-97.917677},{"lat":19.211952,"lon":-97.918621},{"lat":19.211755,"lon":-97.9189},{"lat":19.21153,"lon":-97.919502},{"lat":19.211344,"lon":-97.919995},{"lat":19.211132,"lon":-97.920322},{"lat":19.211042,"lon":-97.920536},{"lat":19.21116,"lon":-97.920712}]}], lastWays = null;
+  var CKEY = 'yvc_streets_v1', reqId = 0;
+  function readCache(){
+    try { var o = JSON.parse(lsGet(CKEY) || 'null'); return (o && Array.isArray(o.ways) && o.ways.length) ? o : null; } catch(e){ return null; }
+  }
+  function cacheWays(ways){
+    lsSet(CKEY, JSON.stringify({t: Date.now(), ways: ways.map(function(w){ return {tags: {name: (w.tags && w.tags.name) || ''}, geometry: w.geometry}; })}));
+  }
+  function useWays(ways, msg){
+    var g = buildGraph(ways);
+    if (g.keys.length < 10) throw new Error('pocas calles');
+    G = g; graphReal = true; streetError = false; drawStreets(ways);
+    lastWays = ways; $('#exportWays').hidden = !!(Array.isArray(EMBEDDED_WAYS) && EMBEDDED_WAYS.length);
+    $('#importWays').hidden = true;
+    $('#mapStatus').textContent = msg || 'Calles reales cargadas.'; $('#retry').hidden = true;
+  }
+  function loadStreets(center, force){
+    var id = ++reqId, cache = readCache(), fresh = cache && !force && (Date.now() - cache.t) < 7 * 864e5;
+    loading = true; sig = '';
+    $('#mapStatus').textContent = 'Cargando las calles de San Pablo Zitlaltepec…';
+    var emb = (Array.isArray(EMBEDDED_WAYS) && EMBEDDED_WAYS.length) ? EMBEDDED_WAYS : null;
+    var p = emb
+      ? Promise.resolve().then(function(){ useWays(emb, 'Calles reales cargadas. Toca el mapa para marcar dónde vives.'); })
+      : fresh
+      ? Promise.resolve().then(function(){ useWays(cache.ways, 'Calles reales de OpenStreetMap, guardadas en tu navegador.'); })
+      : fetchWays(center, 1600).then(function(ways){
+          if (id !== reqId) return;
+          useWays(ways, 'Calles reales cargadas de OpenStreetMap. Toca el mapa para marcar dónde vives.');
+          cacheWays(ways);
+        });
+    return p.catch(function(err){
+      console.warn('Calles:', err);
+      if (id !== reqId) return;
+      try { if (!cache) throw err; useWays(cache.ways, 'Sin conexión con OpenStreetMap; uso las calles reales guardadas en este navegador.'); }
+      catch(e2){
+        G = null; W = null; graphReal = false; streetError = true; lastWays = null;
+        trail = []; trailLine.setLatLngs([]); truckMarker.setOpacity(0);
+        $('#mapStatus').textContent = 'No se pudieron cargar calles reales. Revisa tu conexión y vuelve a intentar, o carga un archivo calles.json guardado desde otro dispositivo.';
+        $('#retry').hidden = false;
+        $('#importWays').hidden = false;
+        toast('No pude cargar las calles reales del pueblo.');
+      }
+    }).then(function(){
+      if (id !== reqId) return;
+      loading = false;
+      if (G) startWalker(center);
+      sig = '';
+    });
+  }
+
+  function importWaysFile(file){
+    var reader = new FileReader();
+    reader.onload = function(){
+      try {
+        var ways = JSON.parse(String(reader.result || ''));
+        if (!Array.isArray(ways)) throw new Error('formato');
+        var g = buildGraph(ways);
+        if (g.keys.length < 10) throw new Error('pocas calles');
+        reqId++; loading = true; sig = '';
+        useWays(ways, 'Calles reales cargadas desde el archivo. Toca el mapa para marcar dónde vives.');
+        cacheWays(ways);
+        loading = false; startWalker(TOWN); sig = '';
+        toast('Calles reales cargadas desde el archivo.');
+      } catch(e){
+        loading = false; streetError = true;
+        $('#mapStatus').textContent = 'El archivo no contiene suficientes calles válidas. Elige un calles.json exportado desde el mapa.';
+        toast('No pude leer las calles del archivo.');
+      }
+    };
+    reader.onerror = function(){
+      $('#mapStatus').textContent = 'No pude leer el archivo de calles. Intenta seleccionarlo de nuevo.';
+      toast('No pude leer el archivo de calles.');
+    };
+    reader.readAsText(file);
+  }
+
+  /* ---------- Camión al azar ---------- */
+  var W = null, trail = [], dirLeft = false, follow = false;
+  function startWalker(center){
+    var c = center || state.center || DEFAULT_CENTER, bestK = null, rnd = (arguments.length === 0), home = state.home || c;
+    var pool = G.keys.filter(function(k){ var d = dm(G.nodes[k].ll, home); return d > 350 && d < 800; });
+    if (!pool.length) pool = G.keys;
+    bestK = pool[Math.floor(Math.random() * pool.length)];
+    W = {prev:null, cur:bestK, next:null, t:0, len:0, name:'', pos:G.nodes[bestK].ll.slice()};
+    trail = [W.pos.slice()];
+    trailLine.setLatLngs(trail);
+    pickNext();
+    truckMarker.setLatLng(W.pos);
+    truckMarker.setOpacity(1);
+    frameBoth(rnd && !reduce);
+  }
+  function frameBoth(anim){
+    if (W && state.home) map.fitBounds(L.latLngBounds([state.home, W.pos]).pad(0.35), {maxZoom: 17, animate: !!anim});
+  }
+  function pickNext(){
+    var nb = G.nodes[W.cur].nb, opts = nb.filter(function(e){ return e.k !== W.prev; });
+    if (!opts.length) opts = nb;
+    var e = opts[Math.floor(Math.random() * opts.length)];
+    W.next = e.k; W.len = e.d; W.t = 0; W.name = e.name;
+  }
+  function stepWalker(dt){
+    var dist = SPEED * dt, guard = 0;
+    while (dist > 0 && guard++ < 60) {
+      var rem = W.len - W.t;
+      if (dist < rem) { W.t += dist; dist = 0; }
+      else { dist -= rem; W.prev = W.cur; W.cur = W.next; pickNext(); }
+    }
+    var a = G.nodes[W.cur].ll, b = G.nodes[W.next].ll, f = W.len > 0 ? W.t / W.len : 0;
+    W.pos = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+    if (Math.abs(b[1] - a[1]) > 1e-9) dirLeft = b[1] < a[1];
+  }
+
+  /* ---------- Pantalla ---------- */
+  var sig = '', alertOn = true, alertDist = 300, last = performance.now();
+  (function(){
+    var s = lsGet('yvc_alert2');
+    if (s) { try { var o = JSON.parse(s); alertOn = !!o.on; alertDist = +o.dist || 300; } catch(e){} }
+    $('#alertOn').checked = alertOn;
+    $('#alertDist').value = String(alertDist);
+  })();
+  function saveAlert(){ lsSet('yvc_alert2', JSON.stringify({on: alertOn, dist: alertDist})); }
+  $('#alertOn').addEventListener('change', function(e){ alertOn = e.target.checked; saveAlert(); sig = ''; });
+  $('#alertDist').addEventListener('change', function(e){ alertDist = +e.target.value; saveAlert(); sig = ''; });
+
+  function fmt(d){
+    if (d < 1000) return {num: String(Math.max(10, Math.round(d / 10) * 10)), unit: 'm'};
+    return {num: (d / 1000).toFixed(1), unit: 'km'};
+  }
+  function updateUi(){
+    var el = $('#eta'), banner = $('#banner');
+    if (streetError && !loading) {
+      if (sig !== 'street-error') {
+        sig = 'street-error';
+        el.setAttribute('data-st', 'loading');
+        el.innerHTML = '<div class="eta-top"><span class="pill pill-plain">Mapa sin calles</span></div>' +
+          '<p class="eta-lead">No se puede mostrar el recorrido del camión.</p>' +
+          '<p class="eta-foot">Conéctate a internet, vuelve a cargar el mapa o carga un archivo calles.json.</p>';
+        banner.hidden = true;
+      }
+      return;
+    }
+    if (loading || !W || !state.home) {
+      if (sig !== 'loading') {
+        sig = 'loading';
+        el.setAttribute('data-st', 'loading');
+        el.innerHTML = '<div class="eta-top"><span class="pill pill-plain">Cargando</span></div>' +
+          '<p class="eta-lead">Buscando las calles de San Pablo Zitlaltepec…</p>' +
+          '<p class="eta-foot">Necesita internet para bajar el mapa.</p>';
+        banner.hidden = true;
+      }
+      return;
+    }
+    var d = dm(W.pos, state.home), st = d <= 60 ? 'near' : (d <= 300 ? 'close' : 'far');
+    var f = fmt(d), street = W.name || '', mins = Math.max(1, Math.ceil(d / (REAL_SPEED * 60)));
+    var inAlert = alertOn && d <= alertDist;
+    var s = [st, f.unit, inAlert, graphReal].join('|');
+    if (s !== sig) {
+      sig = s;
+      el.setAttribute('data-st', st);
+      var html;
+      if (st === 'near') {
+        html = '<div class="eta-top"><span class="pill pill-done">Pasando por tu casa</span><span class="eta-sch">Demo acelerada</span></div>' +
+          '<p class="eta-lead">El camión está junto a tu casa</p><p class="eta-num">Ya</p><p class="eta-foot"><span id="etaW"></span></p>';
+      } else {
+        html = '<div class="eta-top"><span class="pill ' + (st === 'close' ? 'pill-close' : 'pill-live') + '">' + (st === 'close' ? 'Cerca' : 'En camino') + '</span><span class="eta-sch">Demo acelerada</span></div>' +
+          '<p class="eta-lead">El camión está a</p>' +
+          '<p class="eta-num"><span id="etaN"></span><span class="eta-unit">' + f.unit + '</span></p>' +
+          '<p class="eta-foot"><span id="etaW"></span> Llegaría a tu casa en unos <span id="etaM"></span> min.</p>';
+      }
+      el.innerHTML = html + '<button type="button" class="btn btn-ghost" data-go="comentarios">Avisar de un problema</button>';
+      banner.textContent = st === 'near' ? 'El camión está pasando por tu casa. Saca tu basura ya.' : 'El camión ya está cerca de tu casa. Es buen momento de sacar tu basura.';
+      banner.hidden = !inAlert;
+    }
+    var n = $('#etaN'), m = $('#etaM'), w = $('#etaW');
+    if (n) n.textContent = f.num;
+    if (m) m.textContent = mins;
+    if (w && w.getAttribute('data-k') !== street) {
+      w.innerHTML = street ? 'Va por <strong>' + esc(street) + '</strong>.' : 'Va por una calle sin nombre.';
+      w.setAttribute('data-k', street);
+    }
+  }
+
+  function frame(now){
+    var dt = Math.min(0.25, (now - last) / 1000);
+    last = now;
+    if (W && G && !loading) {
+      stepWalker(dt);
+      truckMarker.setLatLng(W.pos);
+      if (truckInner) truckInner.style.transform = dirLeft ? 'scaleX(-1)' : 'none';
+      var lt = trail[trail.length - 1];
+      if (dm(lt, W.pos) >= 8) {
+        trail.push(W.pos.slice());
+        if (trail.length > 70) trail.shift();
+        trailLine.setLatLngs(trail);
+      }
+      if (follow) map.panTo(W.pos, {animate: false});
+    }
+    updateUi();
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------- Botones del mapa ---------- */
+  $('#follow').addEventListener('click', function(e){
+    follow = !follow; e.currentTarget.setAttribute('aria-pressed', follow ? 'true' : 'false');
+  });
+  $('#goHome').addEventListener('click', function(){ if (state.home) map.setView(state.home, 17, {animate: !reduce}); });
+  $('#retry').addEventListener('click', function(){ loadStreets(TOWN, true); });
+  $('#importWays').addEventListener('click', function(){ $('#waysFile').click(); });
+  $('#waysFile').addEventListener('change', function(e){
+    var file = e.target.files && e.target.files[0];
+    if (file) importWaysFile(file);
+    e.target.value = '';
+  });
+  $('#exportWays').addEventListener('click', function(){
+    if (!lastWays) return;
+    var data = lastWays.map(function(w){ return {tags: {name: (w.tags && w.tags.name) || ''}, geometry: w.geometry}; });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], {type: 'application/json'}));
+    a.download = 'calles.json';
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+  /* ---------- Botón "Avisar de un problema" ---------- */
+  document.addEventListener('click', function(e){
+    if (!e.target.closest('[data-go]')) return;
+    $('.cm').scrollIntoView({behavior: reduce ? 'auto' : 'smooth', block: 'start'});
+    var first = $('.cm input[name="cmtipo"]');
+    if (first) first.focus({preventScroll: true});
+  });
+
+  /* ---------- Comentarios ---------- */
+  var CM_TIPOS = {retraso:'Se retrasó', nopaso:'No pasó', sinrecoger:'Pasó sin recoger', otro:'Otro problema'};
+  var cms = [];
+  try { cms = JSON.parse(lsGet('yvc_comments_v1') || '[]'); if (!Array.isArray(cms)) cms = []; } catch(e){ cms = []; }
+  function saveCms(){ lsSet('yvc_comments_v1', JSON.stringify(cms.slice(-50))); }
+  function ago(ms){
+    var m = Math.floor((Date.now() - ms) / 60000);
+    if (m < 1) return 'justo ahora';
+    if (m < 60) return 'hace ' + m + ' min';
+    var h = Math.floor(m / 60);
+    if (h < 24) return 'hace ' + h + (h === 1 ? ' hora' : ' horas');
+    var d = Math.floor(h / 24);
+    return 'hace ' + d + (d === 1 ? ' día' : ' días');
+  }
+  function renderCms(){
+    var html = '';
+    cms.slice().reverse().slice(0, 20).forEach(function(c){
+      html += '<article class="cm-item"><div class="rep-head"><span class="pill ' + (c.k === 'otro' ? 'pill-plain' : 'pill-warn') + '">' + esc(CM_TIPOS[c.k] || 'Comentario') + '</span><span class="who">' + ago(c.t) + '</span></div>' +
+        (c.x ? '<p>' + esc(c.x) + '</p>' : '') +
+        '<button type="button" class="btn btn-ghost btn-small" data-cmdel="' + c.t + '">Borrar</button></article>';
+    });
+    $('#cmList').innerHTML = html || '<p class="hint">Todavía no hay comentarios. Si el camión se retrasa o no pasa, avisa aquí.</p>';
+  }
+  var MAIL_TO = 'mariomozo227@gmail.com';
+  var MAIL_ENDPOINT = 'https://formsubmit.co/ajax/' + MAIL_TO;
+  var pendingComment = null;
+  var PENDING_MAIL_KEY = 'yvc_pending_email_v1';
+  try {
+    pendingComment = JSON.parse(lsGet(PENDING_MAIL_KEY) || 'null');
+    if (!pendingComment || !CM_TIPOS[pendingComment.k] || !isFinite(pendingComment.t)) pendingComment = null;
+  } catch(e){ pendingComment = null; }
+  function storePendingComment(c){
+    pendingComment = c;
+    try {
+      if (c) localStorage.setItem(PENDING_MAIL_KEY, JSON.stringify(c));
+      else localStorage.removeItem(PENDING_MAIL_KEY);
+      return true;
+    } catch(e){
+      console.error('No pude guardar el comentario pendiente:', e);
+      return false;
+    }
+  }
+  function mailStatus(t, bad, canRetry){
+    var p = $('#cmMail');
+    p.textContent = t; p.className = bad ? 'err' : 'hint'; p.hidden = !t;
+    $('#cmRetry').hidden = !canRetry;
+  }
+  function mailFields(c){
+    var tipo = CM_TIPOS[c.k] || 'Comentario';
+    return {_subject: 'Ya viene el camión: ' + tipo, _template: 'table', _captcha: 'false', _url: window.location.href.split('#')[0], Tipo: tipo, Detalle: c.x || '(sin detalle)', Fecha: new Date(c.t).toLocaleString('es-MX')};
+  }
+  /* Método 1: envío en segundo plano */
+  function sendAjax(c){
+    return fetch(MAIL_ENDPOINT, {method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json'}, body: JSON.stringify(mailFields(c))})
+      .then(function(r){
+        return r.text().then(function(text){
+          var j = {};
+          try { j = text ? JSON.parse(text) : {}; } catch(e){ throw new Error('respuesta no válida del servicio'); }
+          if (!r.ok) throw new Error(j.message || ('HTTP ' + r.status));
+          if (String(j.success).toLowerCase() !== 'true') throw new Error(j.message || 'el servicio no confirmó el envío');
+          return j.message || 'aceptado';
+        });
+      });
+  }
+  function submitCommentEmail(c){
+    var btn = $('#cmForm').querySelector('button[type="submit"]');
+    btn.disabled = true; $('#cmRetry').disabled = true;
+    mailStatus('Enviando al servicio de correo…');
+    sendAjax(c)
+      .then(function(msg){
+        if (pendingComment === c) storePendingComment(null);
+        mailStatus('FormSubmit aceptó el envío. Si es la primera vez, confirma el formulario desde el correo de destino; después revisa entrada y spam. Respuesta: ' + msg);
+        toast('FormSubmit aceptó el comentario');
+      })
+      .catch(function(ex){
+        storePendingComment(c);
+        mailStatus('No se confirmó el envío al correo (' + ex.message + '). El comentario quedó guardado en este navegador; puedes reintentar.', true, true);
+      })
+      .then(function(){
+        btn.disabled = false; $('#cmRetry').disabled = false;
+      });
+  }
+  $('#cmForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    var f = e.target, k = f.elements.cmtipo.value, err = $('#cmErr'), btn = f.querySelector('button[type="submit"]');
+    if (pendingComment) {
+      mailStatus('Hay un comentario pendiente de envío. Reintenta ese envío antes de registrar otro.', true, true);
+      return;
+    }
+    if (!k) { err.textContent = 'Elige qué pasó.'; err.hidden = false; return; }
+    err.hidden = true;
+    var c = {k: k, x: f.elements.cmtext.value.trim(), t: Date.now()};
+    cms.push(c);
+    saveCms(); f.reset(); renderCms();
+    storePendingComment(c);
+    submitCommentEmail(c);
+  });
+  $('#cmRetry').addEventListener('click', function(){ if (pendingComment) submitCommentEmail(pendingComment); });
+  if (pendingComment) mailStatus('Hay un comentario pendiente de envío guardado en este navegador. Reintenta para mandarlo.', true, true);
+  $('#cmList').addEventListener('click', function(e){
+    var b = e.target.closest('[data-cmdel]');
+    if (!b) return;
+    var t = +b.getAttribute('data-cmdel');
+    cms = cms.filter(function(c){ return c.t !== t; }); saveCms(); renderCms();
+  });
+  renderCms(); setInterval(renderCms, 60000);
+
+  /* ---------- Inicio ---------- */
+  updateUi();
+  last = performance.now();
+  requestAnimationFrame(frame);
+
+  function askLocation(){
+    var btn = $('#useLoc');
+    if (!navigator.geolocation) { toast('Este navegador no puede darme tu ubicación. Toca el mapa para marcar tu casa.'); return; }
+    btn.disabled = true; btn.textContent = 'Buscando…';
+    function done(){ btn.disabled = false; btn.textContent = 'Mi ubicación'; }
+    navigator.geolocation.getCurrentPosition(function(pos){
+      done();
+      var c = [+pos.coords.latitude.toFixed(6), +pos.coords.longitude.toFixed(6)], acc = Math.round(pos.coords.accuracy) || null;
+      if (dm(c, TOWN) > 4000) {
+        toast('Parece que no estás en San Pablo Zitlaltepec. Toca el mapa para marcar tu casa.');
+        return;
+      }
+      state.home = c; state.acc = acc; save(); placeHome(); sig = '';
+      map.setView(c, 17); frameBoth(false);
+      if (acc > 500) toast('Tu ubicación es poco precisa (unos ' + acc + ' m). Toca el mapa para marcar tu casa exacta.');
+    }, function(err){
+      done();
+      toast(err.code === 3 ? 'Tardó demasiado en encontrar tu ubicación. Intenta otra vez o toca el mapa para marcar tu casa.'
+        : 'No pude usar tu ubicación. Revisa el permiso y que el GPS esté activado, o toca el mapa para marcar tu casa.');
+    }, {enableHighAccuracy: true, timeout: 15000, maximumAge: 60000});
+  }
+  $('#useLoc').addEventListener('click', askLocation);
+
+  placeHome();
+  loadStreets(TOWN);
+})();
+</script>
+</body>
+</html>
